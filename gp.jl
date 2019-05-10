@@ -186,26 +186,3 @@ function rand(gp::GaussianProcess{K}, xs::Array{T}, n::Int) where {K <: Kernel,T
     Base.rand(MvNormal(zeros(l), k), n)
 end
 
-
-# function gpr(gp::GaussianProcess{K}, xtest::Array{T},
-#             xtrain::Array{T}, ytrain::Array{T}) where {K <: Kernel,T}
-#     Base.length(xtrain) == Base.length(ytrain) || throw(DimensionMismatch("size of x1 not equal to size of x2"))
-#     n = Base.length(xtrain)
-#     m = Base.length(xtest)
-#     k = cov(gp, xtrain, false)
-#     k_star = zeros(n, m)
-#     for i in 1:n
-#         for j in 1:m
-#             k_star[i, j] = ker(gp.kernel, xtrain[i, :], xtest[j, :])
-#         end
-#     end
-#     s = cov(gp, xtest)
-
-#     k_inv = inv(k)
-#     k_star_inv = k_star' * k_inv
-#     println(s)
-#     println(k_star_inv)
-#     println(k_star' * k_inv * k_star)
-#     println(s - k_star_inv * k_star)
-#     MvNormal(k_star_inv * ytrain, s - k_star_inv * k_star)
-# end
