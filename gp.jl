@@ -6,8 +6,6 @@ using SpecialFunctions
 
 
 ElementOrVector{T} = Union{T,Vector{T}}
-VectorOrMatrix{T} = Union{Vector{T},Array{T,2}}
-
 
 abstract type Kernel end
 
@@ -51,7 +49,7 @@ end
 
 function ker(k::ExponentialKernel, x1::ElementOrVector{T}, x2::ElementOrVector{T}) where {T <: Real}
     Base.length(x1) == Base.length(x2) || throw(DimensionMismatch("size of x1 not equal to size of x2"))
-    exp(- sum(abs.(x1 - x2)) / k.theta)
+    return exp(- sum(abs.(x1 - x2)) / k.theta)
 end
 
 
@@ -162,7 +160,7 @@ end
 
 
 # covariance matrix
-function cov(gp::GaussianProcess{K}, xs::VectorOrMatrix{T}) where {K <: Kernel,T <: Real}
+function cov(gp::GaussianProcess{K}, xs::Array{T}) where {K <: Kernel,T}
     n = size(xs, 1)
     c = zeros(n, n)
     for i in 1:n
@@ -176,14 +174,38 @@ function cov(gp::GaussianProcess{K}, xs::VectorOrMatrix{T}) where {K <: Kernel,T
 end
 
 # sampling function
-function rand(gp::GaussianProcess{K}, xs::VectorOrMatrix{T}) where {K <: Kernel,T <: Real}
+function rand(gp::GaussianProcess{K}, xs::Array{T}) where {K <: Kernel,T}
     l = size(xs, 1)
     k = cov(gp, xs)
     Base.rand(MvNormal(zeros(l), k))
 end
 
-function rand(gp::GaussianProcess{K}, xs::VectorOrMatrix{T}, n::Int) where {K <: Kernel,T <: Real}
+function rand(gp::GaussianProcess{K}, xs::Array{T}, n::Int) where {K <: Kernel,T}
     l = size(xs, 1)
     k = cov(gp, xs)
     Base.rand(MvNormal(zeros(l), k), n)
 end
+
+
+# function gpr(gp::GaussianProcess{K}, xtest::Array{T},
+#             xtrain::Array{T}, ytrain::Array{T}) where {K <: Kernel,T}
+#     Base.length(xtrain) == Base.length(ytrain) || throw(DimensionMismatch("size of x1 not equal to size of x2"))
+#     n = Base.length(xtrain)
+#     m = Base.length(xtest)
+#     k = cov(gp, xtrain, false)
+#     k_star = zeros(n, m)
+#     for i in 1:n
+#         for j in 1:m
+#             k_star[i, j] = ker(gp.kernel, xtrain[i, :], xtest[j, :])
+#         end
+#     end
+#     s = cov(gp, xtest)
+
+#     k_inv = inv(k)
+#     k_star_inv = k_star' * k_inv
+#     println(s)
+#     println(k_star_inv)
+#     println(k_star' * k_inv * k_star)
+#     println(s - k_star_inv * k_star)
+#     MvNormal(k_star_inv * ytrain, s - k_star_inv * k_star)
+# end
