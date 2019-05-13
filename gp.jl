@@ -156,20 +156,31 @@ struct GaussianProcess{K <: Kernel}
     kernel::K
     eta::Float64 # regularization parameter
     GaussianProcess(kernel::K) where {K <: Kernel} = new{K}(kernel, 1e-6)
+    GaussianProcess(kernel::K, eta::T) where {K <: Kernel,T <: Real} = new{K}(kernel, Float64(eta))
 end
 
 
 # covariance matrix
-function cov(gp::GaussianProcess{K}, xs::Array{T}) where {K <: Kernel,T}
-    n = size(xs, 1)
-    c = zeros(n, n)
-    for i in 1:n
-        for j in 1:n
-            c[i, j] = ker(gp.kernel, xs[i, :], xs[j, :])
+function cov(gp::GaussianProcess{K}, xs::Array{T}, ys::Array{T}) where {K <: Kernel,T}
+    nx = size(xs, 1)
+    ny = size(ys, 1)
+    c = zeros(nx, ny)
+    for i in 1:nx
+        for j in 1:ny
+            c[i, j] = ker(gp.kernel, xs[i, :], ys[j, :])
         end
     end
+    c
+end
+
+
+function cov(gp::GaussianProcess{K}, xs::Array{T}, reg::Bool = true) where {K <: Kernel,T}
+    c = cov(gp, xs, xs)
     # regularlize
-    c += gp.eta .* Matrix{Float64}(I, n, n) 
+    if reg == true
+        n = size(xs, 1)
+        c += gp.eta .* Matrix{Float64}(I, n, n) 
+    end
     c
 end
 
@@ -187,25 +198,14 @@ function rand(gp::GaussianProcess{K}, xs::Array{T}, n::Int) where {K <: Kernel,T
 end
 
 
-# function gpr(gp::GaussianProcess{K}, xtest::Array{T},
-#             xtrain::Array{T}, ytrain::Array{T}) where {K <: Kernel,T}
-#     Base.length(xtrain) == Base.length(ytrain) || throw(DimensionMismatch("size of x1 not equal to size of x2"))
-#     n = Base.length(xtrain)
-#     m = Base.length(xtest)
-#     k = cov(gp, xtrain, false)
-#     k_star = zeros(n, m)
-#     for i in 1:n
-#         for j in 1:m
-#             k_star[i, j] = ker(gp.kernel, xtrain[i, :], xtest[j, :])
-#         end
-#     end
-#     s = cov(gp, xtest)
+function gpr(gp::GaussianProcess{K}, xtest::Array{T},
+            xtrain::Array{T}, ytrain::Array{T}) where {K <: Kernel,T}
+    Base.length(xtrain) == Base.length(ytrain) || throw(DimensionMismatch("size of x1 not equal to size of x2"))
+    k = cov(gp, xtrain)
+    k_star = cov(gp, xtrain, xtest)
+    s = cov(gp, xtest)
 
-#     k_inv = inv(k)
-#     k_star_inv = k_star' * k_inv
-#     println(s)
-#     println(k_star_inv)
-#     println(k_star' * k_inv * k_star)
-#     println(s - k_star_inv * k_star)
-#     MvNormal(k_star_inv * ytrain, s - k_star_inv * k_star)
-# end
+    k_inv = inv(k)
+    k_star_inv = k_star' * k_inv
+    MvNormal(k_star_inv * ytrain, Symmetric(s - k_star_inv * k_star))
+end
