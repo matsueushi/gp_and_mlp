@@ -156,6 +156,7 @@ struct GaussianProcess{K <: Kernel}
     kernel::K
     eta::Float64 # regularization parameter
     GaussianProcess(kernel::K) where {K <: Kernel} = new{K}(kernel, 1e-6)
+    GaussianProcess(kernel::K, eta::T) where {K <: Kernel,T <: Real} = new{K}(kernel, Float64(eta))
 end
 
 
@@ -174,10 +175,10 @@ end
 
 
 function cov(gp::GaussianProcess{K}, xs::Array{T}, reg::Bool = true) where {K <: Kernel,T}
-    n = size(xs, 1)
     c = cov(gp, xs, xs)
     # regularlize
     if reg == true
+        n = size(xs, 1)
         c += gp.eta .* Matrix{Float64}(I, n, n) 
     end
     c
@@ -200,7 +201,7 @@ end
 function gpr(gp::GaussianProcess{K}, xtest::Array{T},
             xtrain::Array{T}, ytrain::Array{T}) where {K <: Kernel,T}
     Base.length(xtrain) == Base.length(ytrain) || throw(DimensionMismatch("size of x1 not equal to size of x2"))
-    k = cov(gp, xtrain, false)
+    k = cov(gp, xtrain)
     k_star = cov(gp, xtrain, xtest)
     s = cov(gp, xtest)
 
