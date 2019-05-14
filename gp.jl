@@ -5,8 +5,6 @@ using LinearAlgebra
 using SpecialFunctions
 
 
-ElementOrVector{T} = Union{T,Vector{T}}
-
 abstract type Kernel end
 
 """
@@ -20,7 +18,7 @@ struct GaussianKernel{T <: Real} <: Kernel
     end
 end
 
-function ker(k::GaussianKernel, x1::ElementOrVector{T}, x2::ElementOrVector{T}) where {T <: Real}
+function ker(k::GaussianKernel, x1::Array{T}, x2::Array{T}) where {T <: Real}
     Base.length(x1) == Base.length(x2) || throw(DimensionMismatch("size of x1 not equal to size of x2"))
     k.theta1 * exp(- sum(abs.(x1 - x2).^2) / k.theta2)
 end
@@ -31,7 +29,7 @@ Linear kernel
 """
 struct LinearKernel <: Kernel end
 
-function ker(k::LinearKernel, x1::ElementOrVector{T}, x2::ElementOrVector{T}) where {T <: Real}
+function ker(k::LinearKernel, x1::Array{T}, x2::Array{T}) where {T <: Real}
     Base.length(x1) == Base.length(x2) || throw(DimensionMismatch("size of x1 not equal to size of x2"))
     1 + dot(x1, x2)
 end
@@ -47,7 +45,7 @@ struct ExponentialKernel{T <: Real} <: Kernel
     end
 end
 
-function ker(k::ExponentialKernel, x1::ElementOrVector{T}, x2::ElementOrVector{T}) where {T <: Real}
+function ker(k::ExponentialKernel, x1::Array{T}, x2::Array{T}) where {T <: Real}
     Base.length(x1) == Base.length(x2) || throw(DimensionMismatch("size of x1 not equal to size of x2"))
     return exp(- sum(abs.(x1 - x2)) / k.theta)
 end
@@ -64,7 +62,7 @@ struct PeriodicKernel{T <: Real} <: Kernel
     end
 end
 
-function ker(k::PeriodicKernel, x1::ElementOrVector{T}, x2::ElementOrVector{T}) where {T <: Real}
+function ker(k::PeriodicKernel, x1::Array{T}, x2::Array{T}) where {T <: Real}
     Base.length(x1) == Base.length(x2) || throw(DimensionMismatch("size of x1 not equal to size of x2"))
     exp(k.theta1 * cos(sum(abs.(x1 - x2) / k.theta2)))
 end
@@ -82,7 +80,7 @@ struct MaternKernel{T <: Real} <: Kernel
     end
 end
 
-function ker(k::MaternKernel, x1::ElementOrVector{T}, x2::ElementOrVector{T}) where {T <: Real}
+function ker(k::MaternKernel, x1::Array{T}, x2::Array{T}) where {T <: Real}
     Base.length(x1) == Base.length(x2) || throw(DimensionMismatch("size of x1 not equal to size of x2"))
     if x1 == x2
         return 1.0
@@ -101,7 +99,7 @@ struct KernelSum <: Kernel
     kernel2::Kernel
 end
 
-function ker(k::KernelSum, x1::ElementOrVector{T}, x2::ElementOrVector{T}) where {T <: Real}
+function ker(k::KernelSum, x1::Array{T}, x2::Array{T}) where {T <: Real}
     ker(k.kernel1, x1, x2) + ker(k.kernel2, x1, x2)
 end
 
@@ -114,7 +112,7 @@ struct KernelProduct <: Kernel
     kernel2::Kernel
 end
 
-function ker(k::KernelProduct, x1::ElementOrVector{T}, x2::ElementOrVector{T}) where {T <: Real}
+function ker(k::KernelProduct, x1::Array{T}, x2::Array{T}) where {T <: Real}
     ker(k.kernel1, x1, x2) * ker(k.kernel2, x1, x2)
 end
 
@@ -127,7 +125,7 @@ struct KernelScalarProduct{T <: Real} <: Kernel
     kernel::Kernel
 end
 
-function ker(k::KernelScalarProduct, x1::ElementOrVector{T}, x2::ElementOrVector{T}) where {T <: Real}
+function ker(k::KernelScalarProduct, x1::Array{T}, x2::Array{T}) where {T <: Real}
     k.scale * ker(k.kernel, x1, x2)
 end
 
