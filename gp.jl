@@ -6,11 +6,12 @@ using SpecialFunctions
 
 
 abstract type Kernel end
+length(k::Kernel) = Base.length(fieldnames(typeof(k)))
 
 """
 Gaussian kernel / radial basis function, RBF
 """
-struct GaussianKernel{T <: Real} <: Kernel
+mutable struct GaussianKernel{T <: Real} <: Kernel
     theta1::T
     theta2::T
     function GaussianKernel(theta1::T, theta2::T) where {T <: Real}
@@ -21,6 +22,12 @@ end
 function ker(k::GaussianKernel, x1::Array{T}, x2::Array{T}) where {T <: Real}
     Base.length(x1) == Base.length(x2) || throw(DimensionMismatch("size of x1 not equal to size of x2"))
     k.theta1 * exp(- sum(abs.(x1 - x2).^2) / k.theta2)
+end
+
+function update(k::GaussianKernel, theta1::T, theta2::T) where {T <: Real}
+    k.theta1 = theta1
+    k.theta2 = theta2
+    return k
 end
 
 
@@ -34,11 +41,13 @@ function ker(k::LinearKernel, x1::Array{T}, x2::Array{T}) where {T <: Real}
     1 + dot(x1, x2)
 end
 
+update(k::LinearKernel) = k
+
 
 """
 Exponential kernel, Ornstein-Uhlenbeck
 """
-struct ExponentialKernel{T <: Real} <: Kernel
+mutable struct ExponentialKernel{T <: Real} <: Kernel
     theta::T
     function ExponentialKernel(theta::T) where {T <: Real}
         theta == 0 ? throw(DomainError(theta, "theta must not be zero")) : new{T}(theta)
@@ -50,11 +59,16 @@ function ker(k::ExponentialKernel, x1::Array{T}, x2::Array{T}) where {T <: Real}
     return exp(- sum(abs.(x1 - x2)) / k.theta)
 end
 
+function update(k::ExponentialKernel, theta::T) where {T <: Real}
+    k.theta = theta
+    return k
+end
+
 
 """
 Periodic kernel
 """
-struct PeriodicKernel{T <: Real} <: Kernel
+mutable struct PeriodicKernel{T <: Real} <: Kernel
     theta1::T
     theta2::T
     function PeriodicKernel(theta1::T, theta2::T) where {T <: Real}
@@ -67,12 +81,19 @@ function ker(k::PeriodicKernel, x1::Array{T}, x2::Array{T}) where {T <: Real}
     exp(k.theta1 * cos(sum(abs.(x1 - x2) / k.theta2)))
 end
 
+function update(k::PeriodicKernel, theta1::T, theta2::T) where {T <: Real}
+    k.theta1 = theta1
+    k.theta2 = theta2
+    return k
+end
+
+
 """
 Matern kernel
 
 https://en.wikipedia.org/wiki/Mat%C3%A9rn_covariance_function
 """
-struct MaternKernel{T <: Real} <: Kernel
+mutable struct MaternKernel{T <: Real} <: Kernel
     nu::T
     theta::T
     function MaternKernel(nu::T, theta::T) where {T <: Real}
@@ -90,11 +111,17 @@ function ker(k::MaternKernel, x1::Array{T}, x2::Array{T}) where {T <: Real}
     2^(1 - k.nu) / gamma(k.nu) * t^k.nu * besselk(k.nu, t)
 end
 
+function update(k::MaternKernel, nu::T, theta::T) where {T <: Real}
+    k.nu = nu
+    k.theta = theta
+    return k
+end
+
 
 """
 Kernel sum
 """
-struct KernelSum <: Kernel
+mutable struct KernelSum <: Kernel
     kernel1::Kernel
     kernel2::Kernel
 end
@@ -103,30 +130,48 @@ function ker(k::KernelSum, x1::Array{T}, x2::Array{T}) where {T <: Real}
     ker(k.kernel1, x1, x2) + ker(k.kernel2, x1, x2)
 end
 
+length(k::KernelSum) = length(k.kernel1) + length(k.kernel2)
 
 """
-Kernel product 
+Kernel product
 """
-struct KernelProduct <: Kernel
+mutable struct KernelProduct <: Kernel
     kernel1::Kernel
     kernel2::Kernel
 end
+
 
 function ker(k::KernelProduct, x1::Array{T}, x2::Array{T}) where {T <: Real}
     ker(k.kernel1, x1, x2) * ker(k.kernel2, x1, x2)
 end
 
+length(k::KernelProduct) = length(k.kenrel1) + length(k.kernel2)
+
+function update(k::Union{KernelSum,KernelProduct}, params::T...) where {T <: Real}
+    l1 = length(k.kernel1)
+    update(k.kernel1, params[1:l1]...)
+    update(k.kernel2, params[l1 + 1:end]...)
+    return k
+end
 
 """
-Kernel scalar product 
+Kernel scalar product
 """
-struct KernelScalarProduct{T <: Real} <: Kernel
+mutable struct KernelScalarProduct{T <: Real} <: Kernel
     scale::T
     kernel::Kernel
 end
 
+length(k::KernelScalarProduct) = 1 + length(k.kernel)
+
 function ker(k::KernelScalarProduct, x1::Array{T}, x2::Array{T}) where {T <: Real}
     k.scale * ker(k.kernel, x1, x2)
+end
+
+function update(k::KernelScalarProduct, params::T...) where {T <: Real}
+    k.scale = params[1]
+    update(k.kernel, params[2:end]...)
+    return k
 end
 
 
@@ -157,6 +202,9 @@ struct GaussianProcess{K <: Kernel}
     GaussianProcess(kernel::K, eta::T) where {K <: Kernel,T <: Real} = new{K}(kernel, Float64(eta))
 end
 
+function update(gp::GaussianProcess{K}, params::T...) where {K <: Kernel,T <: Real}
+    update(gp.kernel, params...)
+end
 
 # covariance matrix
 function cov(gp::GaussianProcess{K}, xs::Array{T}, ys::Array{T}) where {K <: Kernel,T}
@@ -171,7 +219,6 @@ function cov(gp::GaussianProcess{K}, xs::Array{T}, ys::Array{T}) where {K <: Ker
     c
 end
 
-
 function cov(gp::GaussianProcess{K}, xs::Array{T}, reg::Bool = true) where {K <: Kernel,T}
     c = cov(gp, xs, xs)
     # regularlize
@@ -182,19 +229,11 @@ function cov(gp::GaussianProcess{K}, xs::Array{T}, reg::Bool = true) where {K <:
     c
 end
 
-# sampling function
-function rand(gp::GaussianProcess{K}, xs::Array{T}) where {K <: Kernel,T}
+function dist(gp::GaussianProcess{K}, xs::Array{T}) where {K <: Kernel,T}
     l = size(xs, 1)
     k = cov(gp, xs)
-    Base.rand(MvNormal(zeros(l), k))
+    MvNormal(zeros(l), k)
 end
-
-function rand(gp::GaussianProcess{K}, xs::Array{T}, n::Int) where {K <: Kernel,T}
-    l = size(xs, 1)
-    k = cov(gp, xs)
-    Base.rand(MvNormal(zeros(l), k), n)
-end
-
 
 function gpr(gp::GaussianProcess{K}, xtest::Array{T},
             xtrain::Array{T}, ytrain::Array{T}) where {K <: Kernel,T}
