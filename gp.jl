@@ -1,9 +1,8 @@
-import Base: +, *, rand
+import Base: +, -, *, rand
 
 using Distributions
 using LinearAlgebra
 using SpecialFunctions
-
 
 
 abstract type Kernel end
@@ -125,40 +124,33 @@ end
 
 
 """
-Kernel sum
+CompositeKernel
 """
-mutable struct KernelSum <: Kernel
+mutable struct CompositeKernel <: Kernel
+    op::Symbol
     kernel1::Kernel
     kernel2::Kernel
 end
 
-function ker(k::KernelSum, x1::Array{T}, x2::Array{T}) where {T <: Real}
-    ker(k.kernel1, x1, x2) + ker(k.kernel2, x1, x2)
+function ker(k::CompositeKernel, x1::Array{T}, x2::Array{T}) where {T <: Real}
+    ker1 = ker(k.kernel1, x1, x2)
+    ker2 = ker(k.kernel2, x1, x2)
+    eval(Expr(:call, k.op, ker1, ker2))
 end
 
-length(k::KernelSum) = length(k.kernel1) + length(k.kernel2)
+length(k::CompositeKernel) = length(k.kernel1) + length(k.kernel2)
 
-"""
-Kernel product
-"""
-mutable struct KernelProduct <: Kernel
-    kernel1::Kernel
-    kernel2::Kernel
-end
-
-
-function ker(k::KernelProduct, x1::Array{T}, x2::Array{T}) where {T <: Real}
-    ker(k.kernel1, x1, x2) * ker(k.kernel2, x1, x2)
-end
-
-length(k::KernelProduct) = length(k.kenrel1) + length(k.kernel2)
-
-function update(k::Union{KernelSum,KernelProduct}, params::T...) where {T <: Real}
-    l1 = length(k.kernel1)
+function update(k::CompositeKernel, params::T...) where {T <: Real}
+    l1, l2 = length(k.kernel1), length(k.kernel2)
+    @assert Base.length(params) == l1 + l2
     update(k.kernel1, params[1:l1]...)
     update(k.kernel2, params[l1 + 1:end]...)
     return k
 end
+
++(k1::Kernel, k2::Kernel) = CompositeKernel(:+, k1, k2)
+-(k1::Kernel, k2::Kernel) = CompositeKernel(:-, k1, k2)
+*(k1::Kernel, k2::Kernel) = CompositeKernel(:*, k1, k2)
 
 """
 Kernel scalar product
@@ -180,14 +172,6 @@ function update(k::KernelScalarProduct, params::T...) where {T <: Real}
     k 
 end
 
-
-function +(k1::Kernel, k2::Kernel)
-    KernelSum(k1, k2)
-end
-
-function *(k1::Kernel, k2::Kernel)
-    KernelProduct(k1, k2)
-end
 
 function *(scale::T, k::Kernel) where {T <: Real}
     KernelScalarProduct(Float64(scale), k)
