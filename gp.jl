@@ -5,17 +5,20 @@ using LinearAlgebra
 using SpecialFunctions
 
 
+
 abstract type Kernel end
 length(k::Kernel) = Base.length(fieldnames(typeof(k)))
 
 """
 Gaussian kernel / radial basis function, RBF
+        
 """
-mutable struct GaussianKernel{T <: Real} <: Kernel
-    theta1::T
-    theta2::T
+mutable struct GaussianKernel <: Kernel
+    theta1::Float64
+    theta2::Float64
     function GaussianKernel(theta1::T, theta2::T) where {T <: Real}
-        theta2 == 0 ? throw(DomainError(theta2, "theta2 must not be zero")) : new{T}(theta1, theta2)
+        @assert theta2 != 0
+        new(Float64(theta1), Float64(theta2))
     end
 end
 
@@ -25,9 +28,9 @@ function ker(k::GaussianKernel, x1::Array{T}, x2::Array{T}) where {T <: Real}
 end
 
 function update(k::GaussianKernel, theta1::T, theta2::T) where {T <: Real}
-    k.theta1 = theta1
-    k.theta2 = theta2
-    return k
+    k.theta1 = Float64(theta1)
+    k.theta2 = Float64(theta2)
+    k
 end
 
 
@@ -45,34 +48,36 @@ update(k::LinearKernel) = k
 
 
 """
-Exponential kernel, Ornstein-Uhlenbeck
+Exponential kernel, Ornstein - Uhlenbeck
 """
-mutable struct ExponentialKernel{T <: Real} <: Kernel
-    theta::T
+mutable struct ExponentialKernel <: Kernel
+    theta::Float64
     function ExponentialKernel(theta::T) where {T <: Real}
-        theta == 0 ? throw(DomainError(theta, "theta must not be zero")) : new{T}(theta)
+        @assert theta != 0
+        new(Float64(theta))
     end
 end
 
 function ker(k::ExponentialKernel, x1::Array{T}, x2::Array{T}) where {T <: Real}
     Base.length(x1) == Base.length(x2) || throw(DimensionMismatch("size of x1 not equal to size of x2"))
-    return exp(- sum(abs.(x1 - x2)) / k.theta)
+    exp(- sum(abs.(x1 - x2)) / k.theta)
 end
 
 function update(k::ExponentialKernel, theta::T) where {T <: Real}
-    k.theta = theta
-    return k
+    k.theta = Float64(theta)
+    k
 end
 
 
 """
 Periodic kernel
 """
-mutable struct PeriodicKernel{T <: Real} <: Kernel
-    theta1::T
-    theta2::T
+mutable struct PeriodicKernel <: Kernel
+    theta1::Float64
+    theta2::Float64
     function PeriodicKernel(theta1::T, theta2::T) where {T <: Real}
-        theta2 == 0 ? throw(DomainError(theta2, "theta2 must not be zero")) : new{T}(theta1, theta2)
+        @assert theta2 != 0
+        new(Float64(theta1), Float64(theta2))
     end
 end
 
@@ -82,22 +87,23 @@ function ker(k::PeriodicKernel, x1::Array{T}, x2::Array{T}) where {T <: Real}
 end
 
 function update(k::PeriodicKernel, theta1::T, theta2::T) where {T <: Real}
-    k.theta1 = theta1
-    k.theta2 = theta2
-    return k
+    k.theta1 = Float64(theta1)
+    k.theta2 = Float64(theta2)
+    k
 end
 
 
 """
 Matern kernel
 
-https://en.wikipedia.org/wiki/Mat%C3%A9rn_covariance_function
+https://en.wikipedia.org / wiki / Mat % C3 % A9rn_covariance_function
 """
-mutable struct MaternKernel{T <: Real} <: Kernel
-    nu::T
-    theta::T
+mutable struct MaternKernel <: Kernel
+    nu::Float64
+    theta::Float64
     function MaternKernel(nu::T, theta::T) where {T <: Real}
-        theta == 0 ? throw(DomainError(theta, "theta must not be zero")) : new{T}(nu, theta)
+        @assert theta != 0
+        new(Float64(nu), Float64(theta))
     end
 end
 
@@ -112,9 +118,9 @@ function ker(k::MaternKernel, x1::Array{T}, x2::Array{T}) where {T <: Real}
 end
 
 function update(k::MaternKernel, nu::T, theta::T) where {T <: Real}
-    k.nu = nu
-    k.theta = theta
-    return k
+    k.nu = Float64(nu)
+    k.theta = Float64(theta)
+    k
 end
 
 
@@ -157,8 +163,8 @@ end
 """
 Kernel scalar product
 """
-mutable struct KernelScalarProduct{T <: Real} <: Kernel
-    scale::T
+mutable struct KernelScalarProduct <: Kernel
+    scale::Float64
     kernel::Kernel
 end
 
@@ -171,7 +177,7 @@ end
 function update(k::KernelScalarProduct, params::T...) where {T <: Real}
     k.scale = params[1]
     update(k.kernel, params[2:end]...)
-    return k
+    k 
 end
 
 
@@ -183,17 +189,16 @@ function *(k1::Kernel, k2::Kernel)
     KernelProduct(k1, k2)
 end
 
-function *(k::Kernel, scale::T) where {T <: Real}
-    KernelScalarProduct{T}(scale, k)
+function *(scale::T, k::Kernel) where {T <: Real}
+    KernelScalarProduct(Float64(scale), k)
 end
 
-function *(scale::T, k::Kernel) where {T <: Real}
-    KernelScalarProduct{T}(scale, k)
-end
+*(k::Kernel, scale::T) where {T <: Real} = scale * k
 
 
 """
 Gaussian Process
+    
 """
 struct GaussianProcess{K <: Kernel}
     kernel::K
