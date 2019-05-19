@@ -10,7 +10,6 @@ length(k::Kernel) = Base.length(fieldnames(typeof(k)))
 
 """
 Gaussian kernel / radial basis function, RBF
-        
 """
 mutable struct GaussianKernel <: Kernel
     theta1::Float64
@@ -47,7 +46,7 @@ update(k::LinearKernel) = k
 
 
 """
-Exponential kernel, Ornstein - Uhlenbeck
+Exponential kernel, Ornstein-Uhlenbeck
 """
 mutable struct ExponentialKernel <: Kernel
     theta::Float64
@@ -59,7 +58,7 @@ end
 
 function ker(k::ExponentialKernel, x1::Array{T}, x2::Array{T}) where {T <: Real}
     Base.length(x1) == Base.length(x2) || throw(DimensionMismatch("size of x1 not equal to size of x2"))
-    exp(- sum(abs.(x1 - x2)) / k.theta)
+    exp(-sum(abs.(x1 - x2)) / k.theta)
 end
 
 function update(k::ExponentialKernel, theta::T) where {T <: Real}
@@ -94,8 +93,7 @@ end
 
 """
 Matern kernel
-
-https://en.wikipedia.org / wiki / Mat % C3 % A9rn_covariance_function
+https://en.wikipedia.org/wiki/Mat%C3%A9rn_covariance_function
 """
 mutable struct MaternKernel <: Kernel
     nu::Float64
@@ -124,7 +122,7 @@ end
 
 
 """
-CompositeKernel
+Composite kernel
 """
 mutable struct CompositeKernel <: Kernel
     op::Symbol
@@ -141,8 +139,8 @@ end
 length(k::CompositeKernel) = length(k.kernel1) + length(k.kernel2)
 
 function update(k::CompositeKernel, params::T...) where {T <: Real}
-    l1, l2 = length(k.kernel1), length(k.kernel2)
-    @assert Base.length(params) == l1 + l2
+    @assert Base.length(params) == length(k) 
+    l1 = length(k.kernel)
     update(k.kernel1, params[1:l1]...)
     update(k.kernel2, params[l1 + 1:end]...)
     return k
@@ -163,15 +161,16 @@ end
 length(k::KernelScalarProduct) = 1 + length(k.kernel)
 
 function ker(k::KernelScalarProduct, x1::Array{T}, x2::Array{T}) where {T <: Real}
+    Base.length(x1) == Base.length(x2) || throw(DimensionMismatch("size of x1 not equal to size of x2"))
     k.scale * ker(k.kernel, x1, x2)
 end
 
 function update(k::KernelScalarProduct, params::T...) where {T <: Real}
+    @assert Base.length(params) == length(k) 
     k.scale = params[1]
     update(k.kernel, params[2:end]...)
     k 
 end
-
 
 function *(scale::T, k::Kernel) where {T <: Real}
     KernelScalarProduct(Float64(scale), k)
@@ -182,9 +181,8 @@ end
 
 """
 Gaussian Process
-    
 """
-struct GaussianProcess{K <: Kernel}
+mutable struct GaussianProcess{K <: Kernel}
     kernel::K
     eta::Float64 # regularization parameter
     GaussianProcess(kernel::K) where {K <: Kernel} = new{K}(kernel, 1e-6)
@@ -192,7 +190,9 @@ struct GaussianProcess{K <: Kernel}
 end
 
 function update(gp::GaussianProcess{K}, params::T...) where {K <: Kernel,T <: Real}
-    update(gp.kernel, params...)
+    update(gp.kernel, params[1:end - 1]...)
+    gp.eta = params[end]
+    gp
 end
 
 # covariance matrix
@@ -213,7 +213,7 @@ function cov(gp::GaussianProcess{K}, xs::Array{T}, reg::Bool = true) where {K <:
     # regularlize
     if reg == true
         n = size(xs, 1)
-        c += gp.eta .* Matrix{Float64}(I, n, n) 
+        c += gp.eta * Matrix{Float64}(I, n, n) 
     end
     c
 end
@@ -227,11 +227,12 @@ end
 function gpr(gp::GaussianProcess{K}, xtest::Array{T},
             xtrain::Array{T}, ytrain::Array{T}) where {K <: Kernel,T}
     Base.length(xtrain) == Base.length(ytrain) || throw(DimensionMismatch("size of x1 not equal to size of x2"))
-    k = cov(gp, xtrain)
     k_star = cov(gp, xtrain, xtest)
     s = cov(gp, xtest)
 
-    k_inv = inv(k)
+    k_inv = inv(cov(gp, xtrain))
     k_star_inv = k_star' * k_inv
-    MvNormal(k_star_inv * ytrain, Symmetric(s - k_star_inv * k_star))
+    mu = k_star_inv * ytrain
+    sig = Symmetric(s - k_star_inv * k_star)
+    MvNormal(mu, sig)
 end
