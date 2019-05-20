@@ -25,7 +25,7 @@ function ker(k::GaussianKernel, x1::Array{T}, x2::Array{T}) where {T <: Real}
     k.theta1 * exp(- sum(abs.(x1 - x2).^2) / k.theta2)
 end
 
-function update(k::GaussianKernel, theta1::T, theta2::T) where {T <: Real}
+function update!(k::GaussianKernel, theta1::T, theta2::T) where {T <: Real}
     k.theta1 = Float64(theta1)
     k.theta2 = Float64(theta2)
     k
@@ -42,7 +42,7 @@ function ker(k::LinearKernel, x1::Array{T}, x2::Array{T}) where {T <: Real}
     1 + dot(x1, x2)
 end
 
-update(k::LinearKernel) = k
+update!(k::LinearKernel) = k
 
 
 """
@@ -61,7 +61,7 @@ function ker(k::ExponentialKernel, x1::Array{T}, x2::Array{T}) where {T <: Real}
     exp(-sum(abs.(x1 - x2)) / k.theta)
 end
 
-function update(k::ExponentialKernel, theta::T) where {T <: Real}
+function update!(k::ExponentialKernel, theta::T) where {T <: Real}
     k.theta = Float64(theta)
     k
 end
@@ -84,7 +84,7 @@ function ker(k::PeriodicKernel, x1::Array{T}, x2::Array{T}) where {T <: Real}
     exp(k.theta1 * cos(sum(abs.(x1 - x2) / k.theta2)))
 end
 
-function update(k::PeriodicKernel, theta1::T, theta2::T) where {T <: Real}
+function update!(k::PeriodicKernel, theta1::T, theta2::T) where {T <: Real}
     k.theta1 = Float64(theta1)
     k.theta2 = Float64(theta2)
     k
@@ -114,7 +114,7 @@ function ker(k::MaternKernel, x1::Array{T}, x2::Array{T}) where {T <: Real}
     2^(1 - k.nu) / gamma(k.nu) * t^k.nu * besselk(k.nu, t)
 end
 
-function update(k::MaternKernel, nu::T, theta::T) where {T <: Real}
+function update!(k::MaternKernel, nu::T, theta::T) where {T <: Real}
     k.nu = Float64(nu)
     k.theta = Float64(theta)
     k
@@ -138,17 +138,18 @@ end
 
 length(k::CompositeKernel) = length(k.kernel1) + length(k.kernel2)
 
-function update(k::CompositeKernel, params::T...) where {T <: Real}
+function update!(k::CompositeKernel, params::T...) where {T <: Real}
     @assert Base.length(params) == length(k) 
     l1 = length(k.kernel)
-    update(k.kernel1, params[1:l1]...)
-    update(k.kernel2, params[l1 + 1:end]...)
+    update!(k.kernel1, params[1:l1]...)
+    update!(k.kernel2, params[l1 + 1:end]...)
     return k
 end
 
 +(k1::Kernel, k2::Kernel) = CompositeKernel(:+, k1, k2)
 -(k1::Kernel, k2::Kernel) = CompositeKernel(:-, k1, k2)
 *(k1::Kernel, k2::Kernel) = CompositeKernel(:*, k1, k2)
+
 
 """
 Kernel scalar product
@@ -165,10 +166,10 @@ function ker(k::KernelScalarProduct, x1::Array{T}, x2::Array{T}) where {T <: Rea
     k.scale * ker(k.kernel, x1, x2)
 end
 
-function update(k::KernelScalarProduct, params::T...) where {T <: Real}
+function update!(k::KernelScalarProduct, params::T...) where {T <: Real}
     @assert Base.length(params) == length(k) 
     k.scale = params[1]
-    update(k.kernel, params[2:end]...)
+    update!(k.kernel, params[2:end]...)
     k 
 end
 
@@ -189,8 +190,8 @@ mutable struct GaussianProcess{K <: Kernel}
     GaussianProcess(kernel::K, eta::T) where {K <: Kernel,T <: Real} = new{K}(kernel, Float64(eta))
 end
 
-function update(gp::GaussianProcess{K}, params::T...) where {K <: Kernel,T <: Real}
-    update(gp.kernel, params[1:end - 1]...)
+function update!(gp::GaussianProcess{K}, params::T...) where {K <: Kernel,T <: Real}
+    update!(gp.kernel, params[1:end - 1]...)
     gp.eta = params[end]
     gp
 end
