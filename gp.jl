@@ -237,3 +237,45 @@ function gpr(gp::GaussianProcess{K}, xtest::Array{T},
     sig = Symmetric(s - k_star_inv * k_star)
     MvNormal(mu, sig)
 end
+
+
+"""
+Parameter calibrator
+"""
+mutable struct ParamCalibrator
+    gp::GaussianProcess
+    xs::Vector{Float64}
+    ys::Vector{Float64}
+    n_xs::Int64
+    distance_matrix::Matrix{Float64}
+    k::Matrix{Float64}
+    k_inv::Matrix{Float64}
+    k_inv_y::Vector{Float64}
+end
+
+function ParamCalibrator(gp::GaussianProcess, xs::Vector{Float64}, ys::Vector{Float64})
+    n_xs = Base.length(xs)
+    distance_matrix = zeros(n_xs, n_xs)
+    for i in 1:n_xs
+        for j in 1:n_xs
+            distance_matrix[i, j] = (xs[i] - xs[j]).^2
+        end
+    end
+    k = cov(gp, xs)
+    k_inv = inv(k)
+    k_inv_y = k_inv * ys
+    ParamCalibrator(gp, xs, ys, n_xs, distance_matrix, k, k_inv, k_inv_y)
+end
+
+function update!(pc::ParamCalibrator, params)
+    y = exp.(params)
+    update!(pc.gp, y...)
+    pc.k = cov(pc.gp, pc.xs)
+    pc.k_inv = inv(pc.k)
+    pc.k_inv_y = pc.k_inv * pc.ys
+    pc
+end
+
+function logp(pc::ParamCalibrator)
+    - log(det(pc.k)) - pc.ys' * pc.k_inv * pc.ys
+end
