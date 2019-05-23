@@ -4,9 +4,27 @@ using Distributions
 using LinearAlgebra
 using SpecialFunctions
 
-
+"""
+Abstract kernel
+"""
 abstract type Kernel end
 length(k::Kernel) = Base.length(fieldnames(typeof(k)))
+
+function cov(k::Kernel, xs::Array{T}, ys::Array{T}) where {T}
+    # covariance matrix
+    nx = size(xs, 1)
+    ny = size(ys, 1)
+    c = zeros(nx, ny)
+    for i in 1:nx
+        for j in 1:ny
+            c[i, j] = ker(k, xs[i, :], ys[j, :])
+        end
+    end
+    c
+end
+
+cov(k::Kernel, xs::Array{T}) where {T} = cov(k, xs, xs)
+
 
 """
 Gaussian kernel / radial basis function, RBF
@@ -196,21 +214,10 @@ function update!(gp::GaussianProcess{K}, params::T...) where {K <: Kernel,T <: R
     gp
 end
 
-# covariance matrix
-function cov(gp::GaussianProcess{K}, xs::Array{T}, ys::Array{T}) where {K <: Kernel,T}
-    nx = size(xs, 1)
-    ny = size(ys, 1)
-    c = zeros(nx, ny)
-    for i in 1:nx
-        for j in 1:ny
-            c[i, j] = ker(gp.kernel, xs[i, :], ys[j, :])
-        end
-    end
-    c
-end
+cov(gp::GaussianProcess{K}, xs::Array{T}, ys::Array{T}) where {K <: Kernel,T} = cov(gp.kernel, xs, ys)
 
 function cov(gp::GaussianProcess{K}, xs::Array{T}, reg::Bool = true) where {K <: Kernel,T}
-    c = cov(gp, xs, xs)
+    c = cov(gp.kernel, xs)
     # regularlize
     if reg == true
         n = size(xs, 1)
