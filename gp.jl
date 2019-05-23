@@ -4,6 +4,7 @@ using Distributions
 using LinearAlgebra
 using SpecialFunctions
 
+
 """
 Abstract kernel
 """
@@ -40,7 +41,16 @@ end
 
 function ker(k::GaussianKernel, x1::Array{T}, x2::Array{T}) where {T <: Real}
     Base.length(x1) == Base.length(x2) || throw(DimensionMismatch("size of x1 not equal to size of x2"))
-    k.theta1 * exp(- sum(abs.(x1 - x2).^2) / k.theta2)
+    k.theta1 * exp(- sum((x1 - x2).^2) / k.theta2)
+end
+
+function logderiv(k::GaussianKernel, x1::Array{T}, x2::Array{T}) where {T <: Real}
+    # derivative for parameter estimation
+    # return ∂g/∂τ, where
+    # g(τ) = ker(exp(τ)), exp(τ)=θ
+    
+    k_ker = ker(k, x1, x2)
+    [k_ker, k_ker / k.theta2 * sum((x1 - x2).^2)]
 end
 
 function update!(k::GaussianKernel, theta1::T, theta2::T) where {T <: Real}
@@ -60,6 +70,10 @@ function ker(k::LinearKernel, x1::Array{T}, x2::Array{T}) where {T <: Real}
     1 + dot(x1, x2)
 end
 
+function logderiv(k::LinearKernel, x1::Array{T}, x2::Array{T}) where {T <: Real}
+    []
+end
+
 update!(k::LinearKernel) = k
 
 
@@ -77,6 +91,10 @@ end
 function ker(k::ExponentialKernel, x1::Array{T}, x2::Array{T}) where {T <: Real}
     Base.length(x1) == Base.length(x2) || throw(DimensionMismatch("size of x1 not equal to size of x2"))
     exp(-sum(abs.(x1 - x2)) / k.theta)
+end
+
+function logderiv(k::ExponentialKernel, x1::Array{T}, x2::Array{T}) where {T <: Real}
+    [ker(k, x1, x2) / k.theta * sum(abs.(x1 - x2))]
 end
 
 function update!(k::ExponentialKernel, theta::T) where {T <: Real}
@@ -100,6 +118,12 @@ end
 function ker(k::PeriodicKernel, x1::Array{T}, x2::Array{T}) where {T <: Real}
     Base.length(x1) == Base.length(x2) || throw(DimensionMismatch("size of x1 not equal to size of x2"))
     exp(k.theta1 * cos(sum(abs.(x1 - x2) / k.theta2)))
+end
+
+function logderiv(k::PeriodicKernel, x1::Array{T}, x2::Array{T}) where {T <: Real}
+    k_ker = ker(x1, x2)
+    t = sum(abs.(x1 - x2) / k.theta2)
+    [k.theta1 * cos(t) * k_ker, k.theta1 * t * sin(t) * k_ker]
 end
 
 function update!(k::PeriodicKernel, theta1::T, theta2::T) where {T <: Real}
@@ -130,6 +154,10 @@ function ker(k::MaternKernel, x1::Array{T}, x2::Array{T}) where {T <: Real}
     r = sum(abs.(x1 - x2))
     t = sqrt(2 * k.nu) * r / k.theta
     2^(1 - k.nu) / gamma(k.nu) * t^k.nu * besselk(k.nu, t)
+end
+
+function logderiv(k::MaternKernel, x1::Array{T}, x2::Array{T}) where {T <: Real}
+    throw("unimplemented")
 end
 
 function update!(k::MaternKernel, nu::T, theta::T) where {T <: Real}
@@ -285,4 +313,31 @@ end
 
 function logp(pc::ParamCalibrator)
     - log(det(pc.k)) - pc.ys' * pc.k_inv * pc.ys
+end
+
+function deriv(pc::ParamCalibrator, d_mat::Matrix{T}) where {T <: Real}
+    -tr(pc.k_inv * d_mat) + pc.k_inv_y' * d_mat * pc.k_inv_y
+end
+
+function fg!(pc::ParamCalibrator, F, G, x)
+    # -logp and gradient
+    update!(pc, x)
+    y = exp.(x)
+
+    # gradient
+    if G != nothing
+        d_tensor = zeros(pc.n_xs, pc.n_xs, length(pc.gp.kernel) + 1)
+        for i in 1:pc.n_xs
+            for j in 1:pc.n_xs
+                d_tensor[i, j, 1:end - 1] = logderiv(pc.gp.kernel, pc.xs[i, :], pc.xs[j, :])
+            end
+        end
+        d_tensor[:, :, end] = y[end] .* Matrix{Float64}(I, pc.n_xs, pc.n_xs) # eta
+        G .= mapslices(x->-deriv(pc, x), d_tensor, dims = [1, 2])[:]
+    end
+
+    # log likelihoood
+    if F != nothing
+        return -logp(pc)
+    end
 end
