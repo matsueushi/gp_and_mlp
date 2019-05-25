@@ -9,9 +9,9 @@ using SpecialFunctions
 Abstract kernel
 """
 abstract type Kernel end
-length(k::Kernel) = Base.length(fieldnames(typeof(k)))
+Base.length(k::Kernel) = Base.length(fieldnames(typeof(k)))
 
-function cov(k::Kernel, xs::Array{T}, ys::Array{T}) where {T}
+function cov(k::Kernel, xs::Array, ys::Array)
     # covariance matrix
     nx = size(xs, 1)
     ny = size(ys, 1)
@@ -24,38 +24,35 @@ function cov(k::Kernel, xs::Array{T}, ys::Array{T}) where {T}
     c
 end
 
-cov(k::Kernel, xs::Array{T}) where {T} = cov(k, xs, xs)
+cov(k::Kernel, xs::Array) = cov(k, xs, xs)
 
 
 """
 Gaussian kernel / radial basis function, RBF
 """
 mutable struct GaussianKernel <: Kernel
-    theta1::Float64
-    theta2::Float64
-    function GaussianKernel(theta1::T, theta2::T) where {T <: Real}
-        @assert theta2 != 0
-        new(Float64(theta1), Float64(theta2))
+    theta::Float64
+    function GaussianKernel(theta::Real)
+        @assert theta != 0
+        new(Float64(theta))
     end
 end
 
-function ker(k::GaussianKernel, x1::Array{T}, x2::Array{T}) where {T <: Real}
+function ker(k::GaussianKernel, x1::Array{<: Real}, x2::Array{<: Real})
     Base.length(x1) == Base.length(x2) || throw(DimensionMismatch("size of x1 not equal to size of x2"))
-    k.theta1 * exp(- sum((x1 - x2).^2) / k.theta2)
+    exp(- sum((x1 - x2).^2) / k.theta)
 end
 
-function logderiv(k::GaussianKernel, x1::Array{T}, x2::Array{T}) where {T <: Real}
+function logderiv(k::GaussianKernel, x1::Array{<: Real}, x2::Array{<: Real})
     # derivative for parameter estimation
     # return ∂g/∂τ, where
     # g(τ) = ker(exp(τ)), exp(τ)=θ
-    
-    k_ker = ker(k, x1, x2)
-    [k_ker, k_ker / k.theta2 * sum((x1 - x2).^2)]
+    [ker(k, x1, x2) / k.theta * sum((x1 - x2).^2)]
 end
 
-function update!(k::GaussianKernel, theta1::T, theta2::T) where {T <: Real}
-    k.theta1 = Float64(theta1)
-    k.theta2 = Float64(theta2)
+function update!(k::GaussianKernel, theta::Real)
+    @assert theta != 0
+    k.theta = Float64(theta)
     k
 end
 
@@ -65,12 +62,12 @@ Linear kernel
 """
 struct LinearKernel <: Kernel end
 
-function ker(k::LinearKernel, x1::Array{T}, x2::Array{T}) where {T <: Real}
+function ker(k::LinearKernel, x1::Array{<: Real}, x2::Array{<: Real})
     Base.length(x1) == Base.length(x2) || throw(DimensionMismatch("size of x1 not equal to size of x2"))
     1 + dot(x1, x2)
 end
 
-function logderiv(k::LinearKernel, x1::Array{T}, x2::Array{T}) where {T <: Real}
+function logderiv(k::LinearKernel, x1::Array{<: Real}, x2::Array{<: Real})
     []
 end
 
@@ -82,22 +79,22 @@ Exponential kernel, Ornstein-Uhlenbeck
 """
 mutable struct ExponentialKernel <: Kernel
     theta::Float64
-    function ExponentialKernel(theta::T) where {T <: Real}
+    function ExponentialKernel(theta::Real)
         @assert theta != 0
         new(Float64(theta))
     end
 end
 
-function ker(k::ExponentialKernel, x1::Array{T}, x2::Array{T}) where {T <: Real}
+function ker(k::ExponentialKernel, x1::Array{<: Real}, x2::Array{<: Real})
     Base.length(x1) == Base.length(x2) || throw(DimensionMismatch("size of x1 not equal to size of x2"))
     exp(-sum(abs.(x1 - x2)) / k.theta)
 end
 
-function logderiv(k::ExponentialKernel, x1::Array{T}, x2::Array{T}) where {T <: Real}
+function logderiv(k::ExponentialKernel, x1::Array{<: Real}, x2::Array{<: Real})
     [ker(k, x1, x2) / k.theta * sum(abs.(x1 - x2))]
 end
 
-function update!(k::ExponentialKernel, theta::T) where {T <: Real}
+function update!(k::ExponentialKernel, theta::Real)
     k.theta = Float64(theta)
     k
 end
@@ -109,24 +106,24 @@ Periodic kernel
 mutable struct PeriodicKernel <: Kernel
     theta1::Float64
     theta2::Float64
-    function PeriodicKernel(theta1::T, theta2::T) where {T <: Real}
+    function PeriodicKernel(theta1::Real, theta2::Real)
         @assert theta2 != 0
         new(Float64(theta1), Float64(theta2))
     end
 end
 
-function ker(k::PeriodicKernel, x1::Array{T}, x2::Array{T}) where {T <: Real}
+function ker(k::PeriodicKernel, x1::Array{<: Real}, x2::Array{<: Real})
     Base.length(x1) == Base.length(x2) || throw(DimensionMismatch("size of x1 not equal to size of x2"))
     exp(k.theta1 * cos(sum(abs.(x1 - x2) / k.theta2)))
 end
 
-function logderiv(k::PeriodicKernel, x1::Array{T}, x2::Array{T}) where {T <: Real}
+function logderiv(k::PeriodicKernel, x1::Array{<: Real}, x2::Array{<: Real})
     k_ker = ker(x1, x2)
     t = sum(abs.(x1 - x2) / k.theta2)
     [k.theta1 * cos(t) * k_ker, k.theta1 * t * sin(t) * k_ker]
 end
 
-function update!(k::PeriodicKernel, theta1::T, theta2::T) where {T <: Real}
+function update!(k::PeriodicKernel, theta1::Real, theta2::Real)
     k.theta1 = Float64(theta1)
     k.theta2 = Float64(theta2)
     k
@@ -140,13 +137,13 @@ https://en.wikipedia.org/wiki/Mat%C3%A9rn_covariance_function
 mutable struct MaternKernel <: Kernel
     nu::Float64
     theta::Float64
-    function MaternKernel(nu::T, theta::T) where {T <: Real}
+    function MaternKernel(nu::Real, theta::Real)
         @assert theta != 0
         new(Float64(nu), Float64(theta))
     end
 end
 
-function ker(k::MaternKernel, x1::Array{T}, x2::Array{T}) where {T <: Real}
+function ker(k::MaternKernel, x1::Array{<: Real}, x2::Array{<: Real})
     Base.length(x1) == Base.length(x2) || throw(DimensionMismatch("size of x1 not equal to size of x2"))
     if x1 == x2
         return 1.0
@@ -156,11 +153,11 @@ function ker(k::MaternKernel, x1::Array{T}, x2::Array{T}) where {T <: Real}
     2^(1 - k.nu) / gamma(k.nu) * t^k.nu * besselk(k.nu, t)
 end
 
-function logderiv(k::MaternKernel, x1::Array{T}, x2::Array{T}) where {T <: Real}
+function logderiv(k::MaternKernel, x1::Array{<: Real}, x2::Array{<: Real})
     throw("unimplemented")
 end
 
-function update!(k::MaternKernel, nu::T, theta::T) where {T <: Real}
+function update!(k::MaternKernel, nu::Real, theta::Real)
     k.nu = Float64(nu)
     k.theta = Float64(theta)
     k
@@ -176,13 +173,13 @@ mutable struct CompositeKernel <: Kernel
     kernel2::Kernel
 end
 
-function ker(k::CompositeKernel, x1::Array{T}, x2::Array{T}) where {T <: Real}
+function ker(k::CompositeKernel, x1::Array{<: Real}, x2::Array{<: Real})
     ker1 = ker(k.kernel1, x1, x2)
     ker2 = ker(k.kernel2, x1, x2)
     eval(Expr(:call, k.op, ker1, ker2))
 end
 
-function logderiv(k::CompositeKernel, x1::Array{T}, x2::Array{T}) where {T <: Real}
+function logderiv(k::CompositeKernel, x1::Array{<: Real}, x2::Array{<: Real})
     if k.op == :+
         [logderiv(k.ker1, x1, x2)..., logderiv(k.ker2, x1, x2)...]
     elseif k.op == :-
@@ -193,11 +190,11 @@ function logderiv(k::CompositeKernel, x1::Array{T}, x2::Array{T}) where {T <: Re
     end
 end
 
-length(k::CompositeKernel) = length(k.kernel1) + length(k.kernel2)
+Base.length(k::CompositeKernel) = Base.length(k.kernel1) + Base.length(k.kernel2)
 
-function update!(k::CompositeKernel, params::T...) where {T <: Real}
-    @assert Base.length(params) == length(k) 
-    l1 = length(k.kernel)
+function update!(k::CompositeKernel, params::Real...)
+    @assert Base.length(params) == Base.length(k) 
+    l1 = Base.length(k.kernel)
     update!(k.kernel1, params[1:l1]...)
     update!(k.kernel2, params[l1 + 1:end]...)
     return k
@@ -213,34 +210,34 @@ end
 """
 Kernel scalar product
 """
-mutable struct KernelScalarProduct <: Kernel
+mutable struct ScalarProductKernel <: Kernel
     scale::Float64
     kernel::Kernel
 end
 
-length(k::KernelScalarProduct) = 1 + length(k.kernel)
+Base.length(k::ScalarProductKernel) = 1 + Base.length(k.kernel)
 
-function ker(k::KernelScalarProduct, x1::Array{T}, x2::Array{T}) where {T <: Real}
+function ker(k::ScalarProductKernel, x1::Array{<: Real}, x2::Array{<: Real})
     Base.length(x1) == Base.length(x2) || throw(DimensionMismatch("size of x1 not equal to size of x2"))
     k.scale * ker(k.kernel, x1, x2)
 end
 
-function logderiv(k::CompositeKernel, x1::Array{T}, x2::Array{T}) where {T <: Real}
-    [ker(k, x1, x2), k.scale * logderiv(k.kernel, x1, x2)]
+function logderiv(k::ScalarProductKernel, x1::Array{<: Real}, x2::Array{<: Real})
+    [ker(k, x1, x2), k.scale .* logderiv(k.kernel, x1, x2)...]
 end
 
-function update!(k::KernelScalarProduct, params::T...) where {T <: Real}
+function update!(k::ScalarProductKernel, params::Real...)
     @assert Base.length(params) == length(k) 
     k.scale = params[1]
     update!(k.kernel, params[2:end]...)
     k 
 end
 
-function *(scale::T, k::Kernel) where {T <: Real}
-    KernelScalarProduct(Float64(scale), k)
+function *(scale::Real, k::Kernel)
+    ScalarProductKernel(Float64(scale), k)
 end
 
-*(k::Kernel, scale::T) where {T <: Real} = scale * k
+*(k::Kernel, scale::Real) = scale * k
 
 
 """
@@ -250,20 +247,20 @@ mutable struct GaussianProcess{K <: Kernel}
     kernel::K
     eta::Float64 # regularization parameter
     GaussianProcess(kernel::K) where {K <: Kernel} = new{K}(kernel, 1e-6)
-    GaussianProcess(kernel::K, eta::T) where {K <: Kernel,T <: Real} = new{K}(kernel, Float64(eta))
+    GaussianProcess(kernel::K, eta::Real) where {K <: Kernel} = new{K}(kernel, Float64(eta))
 end
 
-function update!(gp::GaussianProcess{K}, params::T...) where {K <: Kernel,T <: Real}
+function update!(gp::GaussianProcess{K}, params::Real...) where {K <: Kernel}
     update!(gp.kernel, params[1:end - 1]...)
     gp.eta = params[end]
     gp
 end
 
-length(gp::GaussianProcess) = length(gp.kernel) + 1
+Base.length(gp::GaussianProcess) = Base.length(gp.kernel) + 1
 
-cov(gp::GaussianProcess{K}, xs::Array{T}, ys::Array{T}) where {K <: Kernel,T} = cov(gp.kernel, xs, ys)
+cov(gp::GaussianProcess{K}, xs::Array{<: Real}, ys::Array{<: Real}) where {K <: Kernel} = cov(gp.kernel, xs, ys)
 
-function cov(gp::GaussianProcess{K}, xs::Array{T}, reg::Bool = true) where {K <: Kernel,T}
+function cov(gp::GaussianProcess{K}, xs::Array{<: Real}, reg::Bool = true) where {K <: Kernel}
     c = cov(gp.kernel, xs)
     # regularlize
     if reg == true
@@ -273,14 +270,14 @@ function cov(gp::GaussianProcess{K}, xs::Array{T}, reg::Bool = true) where {K <:
     c
 end
 
-function dist(gp::GaussianProcess{K}, xs::Array{T}) where {K <: Kernel,T}
+function dist(gp::GaussianProcess{K}, xs::Array{<: Real}) where {K <: Kernel}
     l = size(xs, 1)
     k = cov(gp, xs)
     MvNormal(zeros(l), k)
 end
 
-function gpr(gp::GaussianProcess{K}, xtest::Array{T},
-            xtrain::Array{T}, ytrain::Array{T}) where {K <: Kernel,T}
+function gpr(gp::GaussianProcess{K}, xtest::Array{<: Real},
+            xtrain::Array{<: Real}, ytrain::Array{<: Real}) where {K <: Kernel}
     Base.length(xtrain) == Base.length(ytrain) || throw(DimensionMismatch("size of x1 not equal to size of x2"))
     k_star = cov(gp, xtrain, xtest)
     s = cov(gp, xtest)
@@ -327,7 +324,7 @@ function logp(pc::ParamCalibrator)
     - log(det(pc.k)) - pc.ys' * pc.k_inv * pc.ys
 end
 
-function deriv(pc::ParamCalibrator, d_mat::Matrix{T}) where {T <: Real}
+function deriv(pc::ParamCalibrator, d_mat::Matrix{<: Real})
     -tr(pc.k_inv * d_mat) + pc.k_inv_y' * d_mat * pc.k_inv_y
 end
 
@@ -338,10 +335,11 @@ function fg!(pc::ParamCalibrator, F, G, x)
 
     # gradient
     if G != nothing
-        d_tensor = zeros(pc.n_xs, pc.n_xs, length(pc.gp))
+        d_tensor = zeros(pc.n_xs, pc.n_xs, Base.length(pc.gp))
         for i in 1:pc.n_xs
             for j in 1:pc.n_xs
-                d_tensor[i, j, 1:end - 1] = logderiv(pc.gp.kernel, pc.xs[i, :], pc.xs[j, :])
+                t = logderiv(pc.gp.kernel, pc.xs[i, :], pc.xs[j, :])
+                d_tensor[i, j, 1:end - 1] = t
             end
         end
         d_tensor[:, :, end] = y[end] .* Matrix{Float64}(I, pc.n_xs, pc.n_xs) # eta
