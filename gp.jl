@@ -173,13 +173,13 @@ mutable struct CompositeKernel <: Kernel
     kernel2::Kernel
 end
 
-function ker(k::CompositeKernel, x1::Array{<: Real}, x2::Array{<: Real})
+function ker(k::CompositeKernel, x1::Array, x2::Array)
     ker1 = ker(k.kernel1, x1, x2)
     ker2 = ker(k.kernel2, x1, x2)
     eval(Expr(:call, k.op, ker1, ker2))
 end
 
-function logderiv(k::CompositeKernel, x1::Array{<: Real}, x2::Array{<: Real})
+function logderiv(k::CompositeKernel, x1::Array, x2::Array)
     if k.op == :+
         [logderiv(k.ker1, x1, x2)..., logderiv(k.ker2, x1, x2)...]
     elseif k.op == :-
@@ -217,12 +217,12 @@ end
 
 Base.length(k::ScalarProductKernel) = 1 + Base.length(k.kernel)
 
-function ker(k::ScalarProductKernel, x1::Array{<: Real}, x2::Array{<: Real})
+function ker(k::ScalarProductKernel, x1::Array, x2::Array)
     Base.length(x1) == Base.length(x2) || throw(DimensionMismatch("size of x1 not equal to size of x2"))
     k.scale * ker(k.kernel, x1, x2)
 end
 
-function logderiv(k::ScalarProductKernel, x1::Array{<: Real}, x2::Array{<: Real})
+function logderiv(k::ScalarProductKernel, x1::Array, x2::Array)
     [ker(k, x1, x2), k.scale .* logderiv(k.kernel, x1, x2)...]
 end
 
@@ -250,7 +250,7 @@ mutable struct GaussianProcess{K <: Kernel}
     GaussianProcess(kernel::K, eta::Real) where {K <: Kernel} = new{K}(kernel, Float64(eta))
 end
 
-function update!(gp::GaussianProcess{K}, params::Real...) where {K <: Kernel}
+function update!(gp::GaussianProcess, params::Real...)
     update!(gp.kernel, params[1:end - 1]...)
     gp.eta = params[end]
     gp
@@ -258,9 +258,9 @@ end
 
 Base.length(gp::GaussianProcess) = Base.length(gp.kernel) + 1
 
-cov(gp::GaussianProcess{K}, xs::Array{<: Real}, ys::Array{<: Real}) where {K <: Kernel} = cov(gp.kernel, xs, ys)
+cov(gp::GaussianProcess, xs::Array, ys::Array{<: Real}) = cov(gp.kernel, xs, ys)
 
-function cov(gp::GaussianProcess{K}, xs::Array{<: Real}, reg::Bool = true) where {K <: Kernel}
+function cov(gp::GaussianProcess, xs::Array, reg::Bool = true)
     c = cov(gp.kernel, xs)
     # regularlize
     if reg == true
@@ -270,14 +270,13 @@ function cov(gp::GaussianProcess{K}, xs::Array{<: Real}, reg::Bool = true) where
     c
 end
 
-function dist(gp::GaussianProcess{K}, xs::Array{<: Real}) where {K <: Kernel}
+function dist(gp::GaussianProcess, xs::Array)
     l = size(xs, 1)
     k = cov(gp, xs)
     MvNormal(zeros(l), k)
 end
 
-function gpr(gp::GaussianProcess{K}, xtest::Array{<: Real},
-            xtrain::Array{<: Real}, ytrain::Array{<: Real}) where {K <: Kernel}
+function predict(gp::GaussianProcess, xtest::Array, xtrain::Array, ytrain::Array{<: Real})
     Base.length(xtrain) == Base.length(ytrain) || throw(DimensionMismatch("size of x1 not equal to size of x2"))
     k_star = cov(gp, xtrain, xtest)
     s = cov(gp, xtest)
