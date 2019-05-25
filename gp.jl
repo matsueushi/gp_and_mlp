@@ -1,4 +1,4 @@
-import Base: +, -, *, rand
+import Base: +, -, *
 
 using Distributions
 using LinearAlgebra
@@ -27,10 +27,13 @@ end
 cov(k::Kernel, xs::Array) = cov(k, xs, xs)
 
 
+abstract type BaseKernel <: Kernel end
+
+
 """
 Gaussian kernel / radial basis function, RBF
 """
-mutable struct GaussianKernel <: Kernel
+mutable struct GaussianKernel <: BaseKernel
     theta::Float64
     function GaussianKernel(theta::Real)
         @assert theta != 0
@@ -60,7 +63,7 @@ end
 """
 Linear kernel
 """
-struct LinearKernel <: Kernel end
+struct LinearKernel <: BaseKernel end
 
 function ker(k::LinearKernel, x1::Array{<: Real}, x2::Array{<: Real})
     Base.length(x1) == Base.length(x2) || throw(DimensionMismatch("size of x1 not equal to size of x2"))
@@ -77,7 +80,7 @@ update!(k::LinearKernel) = k
 """
 Exponential kernel, Ornstein-Uhlenbeck
 """
-mutable struct ExponentialKernel <: Kernel
+mutable struct ExponentialKernel <: BaseKernel
     theta::Float64
     function ExponentialKernel(theta::Real)
         @assert theta != 0
@@ -103,7 +106,7 @@ end
 """
 Periodic kernel
 """
-mutable struct PeriodicKernel <: Kernel
+mutable struct PeriodicKernel <: BaseKernel
     theta1::Float64
     theta2::Float64
     function PeriodicKernel(theta1::Real, theta2::Real)
@@ -134,7 +137,7 @@ end
 Matern kernel
 https://en.wikipedia.org/wiki/Mat%C3%A9rn_covariance_function
 """
-mutable struct MaternKernel <: Kernel
+mutable struct MaternKernel <: BaseKernel
     nu::Float64
     theta::Float64
     function MaternKernel(nu::Real, theta::Real)
@@ -165,79 +168,87 @@ end
 
 
 """
-Composite kernel
+Kernel product
 """
-mutable struct CompositeKernel <: Kernel
-    op::Symbol
-    kernel1::Kernel
-    kernel2::Kernel
+mutable struct KernelProduct <: Kernel
+    coef::Float64
+    kernel::Vector{<: BaseKernel}
 end
 
-function ker(k::CompositeKernel, x1::Array, x2::Array)
-    ker1 = ker(k.kernel1, x1, x2)
-    ker2 = ker(k.kernel2, x1, x2)
-    eval(Expr(:call, k.op, ker1, ker2))
+function ker(k::KernelProduct, x1::Array, x2::Array)
+    Base.length(x1) == Base.length(x2) || throw(DimensionMismatch("size of x1 not equal to size of x2"))
+    k.coef * prod([ker(kr, x1, x2) for kr in k.kernel])
 end
 
-function logderiv(k::CompositeKernel, x1::Array, x2::Array)
-    if k.op == :+
-        [logderiv(k.ker1, x1, x2)..., logderiv(k.ker2, x1, x2)...]
-    elseif k.op == :-
-        [logderiv(k.ker1, x1, x2)..., (-1) .* logderiv(k.ker2, x1, x2)...]
-    elseif k.op == :*
-        [ker(k.ker2, x1, x2) .* logderiv(k.ker1, x1, x2)..., 
-         ker(k.ker1, x1, x2) .* logderiv(k.ker2, x1, x2)...]
+function logderiv(k::KernelProduct, x1::Array, x2::Array)
+    ks = [ker(kr, x1, x2) for kr in k.kernel]
+    mat = repeat(ks, Base.length(ks))
+    for i in 1:Base.length(k.kernel)
+        mat[i, i] = 1
+    end
+    kerprod = prod(mat, dims = 1)[:]
+    deriv = vcat([kerprod[i] .* logderiv(kr, x1, x2) for (i, kr) in enumerate(k.kernel)]...)
+    [ker(k, x1, x2), deriv...]
+end
+
+Base.length(k::KernelProduct) = 1 + sum([Base.length(kr) for kr in k.kernel])
+
+function update!(k::KernelProduct, params::Real...)
+    @assert Base.length(params) == Base.length(k)
+    k.coef = params[1]
+    l = 2
+    for kr in k.kernel
+        l_kr = Base.length(kr)
+        update!(kr, params[l:l + l_kr - 1]...)
+        l += l_kr
     end
 end
 
-Base.length(k::CompositeKernel) = Base.length(k.kernel1) + Base.length(k.kernel2)
-
-function update!(k::CompositeKernel, params::Real...)
-    @assert Base.length(params) == Base.length(k) 
-    l1 = Base.length(k.kernel)
-    update!(k.kernel1, params[1:l1]...)
-    update!(k.kernel2, params[l1 + 1:end]...)
-    return k
-end
-
-+(k1::Kernel, k2::Kernel) = CompositeKernel(:+, k1, k2)
--(k1::Kernel, k2::Kernel) = CompositeKernel(:-, k1, k2)
-*(k1::Kernel, k2::Kernel) = CompositeKernel(:*, k1, k2)
-
-
-
 
 """
-Kernel scalar product
+Kernel sum
 """
-mutable struct ScalarProductKernel <: Kernel
-    scale::Float64
-    kernel::Kernel
+mutable struct KernelSum <: Kernel
+    kernel::Vector{<: KernelProduct}
 end
 
-Base.length(k::ScalarProductKernel) = 1 + Base.length(k.kernel)
-
-function ker(k::ScalarProductKernel, x1::Array, x2::Array)
+function ker(k::KernelSum, x1::Array, x2::Array)
     Base.length(x1) == Base.length(x2) || throw(DimensionMismatch("size of x1 not equal to size of x2"))
-    k.scale * ker(k.kernel, x1, x2)
+    sum([ker(kr, x1, x2) for kr in k.kernel])
 end
 
-function logderiv(k::ScalarProductKernel, x1::Array, x2::Array)
-    [ker(k, x1, x2), k.scale .* logderiv(k.kernel, x1, x2)...]
+function logderiv(k::KernelSum, x1::Array, x2::Array)
+    vcat([logderiv(kr, x1, x2) for kr in k.kernel]...)
 end
 
-function update!(k::ScalarProductKernel, params::Real...)
-    @assert Base.length(params) == length(k) 
-    k.scale = params[1]
-    update!(k.kernel, params[2:end]...)
-    k 
+Base.length(k::KernelSum) = sum([Base.length(kr) for kr in k.kernel])
+
+function update!(k::KernelSum, params::Real...)
+    @assert Base.length(params) == Base.length(k)
+    l = 1
+    for kr in k.kernel
+        update!(kr, params[l, l + Base.length(kr) - 1]...)
+        l += Base.length(kr)
+    end
 end
 
-function *(scale::Real, k::Kernel)
-    ScalarProductKernel(Float64(scale), k)
-end
 
-*(k::Kernel, scale::Real) = scale * k
+*(coef::Real, k::BaseKernel) =  KernelProduct(Float64(coef), [k])
+*(k::BaseKernel, coef::Real) = *(coef::Real, k::BaseKernel) 
+*(coef::Real, k::KernelProduct) =  KernelProduct(Float64(coef) * k.coef, k.kernel)
+*(k::KernelProduct, coef::Real) = *(coef::Real, k::KernelProduct)
+*(coef::Real, k::KernelSum) =  KernelSum([coef * kr for kr in k.kernel])
+*(k::KernelSum, coef::Real) = *(coef::Real, k::KernelSum)
+
+
+*(k1::BaseKernel, k2::BaseKernel) = KernelProduct(1.0, [k1, k2])
+*(k1::KernelProduct, k2::BaseKernel) = KernelProduct(k1.coef, [k1.kernel..., k2])
+
++(k1::Kernel, k2::Kernel) = KernelSum([k1, k2])
+-(k1::Kernel, k2::Kernel) = KernelSum([k1, -1.0 * k2])
+
++(k1::KernelSum, k2::Kernel) = KernelSum([k1.kernel..., k2])
+-(k1::KernelSum, k2::Kernel) = KernelSum([k1.kernel..., -k2])
 
 
 """
