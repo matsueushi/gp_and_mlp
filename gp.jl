@@ -19,6 +19,7 @@ function cov(k::Kernel, xs::Array, ys::Array)
     for i in 1:nx
         for j in 1:ny
             c[i, j] = ker(k, xs[i, :], ys[j, :])
+
         end
     end
     c
@@ -307,18 +308,16 @@ mutable struct ParamCalibrator
     gp::GaussianProcess
     xs::Vector{Float64}
     ys::Vector{Float64}
-    n_xs::Int64
     k::Matrix{Float64}
     k_inv::Matrix{Float64}
     k_inv_y::Vector{Float64}
 end
 
 function ParamCalibrator(gp::GaussianProcess, xs::Vector{Float64}, ys::Vector{Float64})
-    n_xs = Base.length(xs)
     k = cov(gp, xs)
     k_inv = inv(k)
     k_inv_y = k_inv * ys
-    ParamCalibrator(gp, xs, ys, n_xs, k, k_inv, k_inv_y)
+    ParamCalibrator(gp, xs, ys, k, k_inv, k_inv_y)
 end
 
 function update!(pc::ParamCalibrator, params)
@@ -342,17 +341,18 @@ function fg!(pc::ParamCalibrator, F, G, x)
     # -logp and gradient
     update!(pc, x)
     y = exp.(x)
+    n = size(pc.xs, 1)
 
     # gradient
     if G != nothing
-        d_tensor = zeros(pc.n_xs, pc.n_xs, Base.length(pc.gp))
-        for i in 1:pc.n_xs
-            for j in 1:pc.n_xs
+        d_tensor = zeros(n, n, Base.length(pc.gp))
+        for i in 1:n
+            for j in 1:n
                 t = logderiv(pc.gp.kernel, pc.xs[i, :], pc.xs[j, :])
                 d_tensor[i, j, 1:end - 1] = t
             end
         end
-        d_tensor[:, :, end] = y[end] .* Matrix{Float64}(I, pc.n_xs, pc.n_xs) # eta
+        d_tensor[:, :, end] = y[end] .* Matrix{Float64}(I, n, n) # eta
         G .= mapslices(x->-deriv(pc, x), d_tensor, dims = [1, 2])[:]
     end
 
