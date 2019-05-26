@@ -11,14 +11,14 @@ Abstract kernel
 abstract type Kernel end
 Base.length(k::Kernel) = Base.length(fieldnames(typeof(k)))
 
-function cov(k::Kernel, xs::Array, ys::Array)
+function cov(k::Kernel, xs1::Array, xs2::Array)
     # covariance matrix
-    nx = size(xs, 1)
-    ny = size(ys, 1)
-    c = zeros(nx, ny)
-    for i in 1:nx
-        for j in 1:ny
-            c[i, j] = ker(k, xs[i, :], ys[j, :])
+    n1 = size(xs1, 1)
+    n2 = size(xs2, 1)
+    c = zeros(n1, n2)
+    for i in 1:n1
+        for j in 1:n2
+            c[i, j] = ker(k, xs1[i, :], xs2[j, :])
 
         end
     end
@@ -228,8 +228,9 @@ function update!(k::KernelSum, params::Real...)
     @assert Base.length(params) == Base.length(k)
     l = 1
     for kr in k.kernel
-        update!(kr, params[l, l + Base.length(kr) - 1]...)
-        l += Base.length(kr)
+        l_kr = Base.length(kr)
+        update!(kr, params[l:l + l_kr - 1]...)
+        l += l_kr
     end
 end
 
@@ -270,16 +271,12 @@ end
 
 Base.length(gp::GaussianProcess) = Base.length(gp.kernel) + 1
 
-cov(gp::GaussianProcess, xs::Array, ys::Array{<: Real}) = cov(gp.kernel, xs, ys)
+cov(gp::GaussianProcess, xs1::Array, xs2::Array) = cov(gp.kernel, xs1, xs2)
 
-function cov(gp::GaussianProcess, xs::Array, reg::Bool = true)
-    c = cov(gp.kernel, xs)
+function cov(gp::GaussianProcess, xs::Array)
     # regularlize
-    if reg == true
-        n = size(xs, 1)
-        c += gp.eta * Matrix{Float64}(I, n, n) 
-    end
-    c
+    n = size(xs, 1)
+    cov(gp.kernel, xs) + gp.eta * Matrix{Float64}(I, n, n) 
 end
 
 function dist(gp::GaussianProcess, xs::Array)
@@ -300,64 +297,42 @@ function predict(gp::GaussianProcess, xtest::Array, xtrain::Array, ytrain::Array
     MvNormal(mu, sig)
 end
 
-
-"""
-Parameter calibrator
-"""
-mutable struct ParamCalibrator
-    gp::GaussianProcess
-    xs::Vector{Float64}
-    ys::Vector{Float64}
-    k::Matrix{Float64}
-    k_inv::Matrix{Float64}
-    k_inv_y::Vector{Float64}
+function logp(gp::GaussianProcess, xs::Array, ys::Array)
+    k = cov(gp, xs)
+    k_inv = inv(k)
+    -log(det(k)) - ys' * k_inv * ys
 end
 
-function ParamCalibrator(gp::GaussianProcess, xs::Vector{Float64}, ys::Vector{Float64})
+function fg!(gp::GaussianProcess, xs::Array, ys::Array, F, G, params)
+    # -logp and gradient
+    y = exp.(params)
+    update!(gp, y...)
     k = cov(gp, xs)
     k_inv = inv(k)
     k_inv_y = k_inv * ys
-    ParamCalibrator(gp, xs, ys, k, k_inv, k_inv_y)
-end
 
-function update!(pc::ParamCalibrator, params)
-    y = exp.(params)
-    update!(pc.gp, y...)
-    pc.k = cov(pc.gp, pc.xs)
-    pc.k_inv = inv(pc.k)
-    pc.k_inv_y = pc.k_inv * pc.ys
-    pc
-end
+    n = size(xs, 1)
 
-function logp(pc::ParamCalibrator)
-    - log(det(pc.k)) - pc.ys' * pc.k_inv * pc.ys
-end
-
-function deriv(pc::ParamCalibrator, d_mat::Matrix{<: Real})
-    -tr(pc.k_inv * d_mat) + pc.k_inv_y' * d_mat * pc.k_inv_y
-end
-
-function fg!(pc::ParamCalibrator, F, G, x)
-    # -logp and gradient
-    update!(pc, x)
-    y = exp.(x)
-    n = size(pc.xs, 1)
+    function deriv(d_mat::Matrix{<: Real})
+        -(-tr(k_inv * d_mat) + k_inv_y' * d_mat * k_inv_y)
+    end
 
     # gradient
     if G != nothing
-        d_tensor = zeros(n, n, Base.length(pc.gp))
+        d_tensor = zeros(n, n, Base.length(gp))
         for i in 1:n
             for j in 1:n
-                t = logderiv(pc.gp.kernel, pc.xs[i, :], pc.xs[j, :])
+                t = logderiv(gp.kernel, xs[i, :], xs[j, :])
                 d_tensor[i, j, 1:end - 1] = t
             end
         end
         d_tensor[:, :, end] = y[end] .* Matrix{Float64}(I, n, n) # eta
-        G .= mapslices(x->-deriv(pc, x), d_tensor, dims = [1, 2])[:]
+        G .= mapslices(deriv, d_tensor, dims = [1, 2])[:]
     end
 
     # log likelihoood
     if F != nothing
-        return -logp(pc)
+        return -(-log(det(k)) - ys' * k_inv * ys)
     end
 end
+
