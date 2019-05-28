@@ -27,9 +27,7 @@ end
 
 cov(k::Kernel, xs::Array) = cov(k, xs, xs)
 
-
 abstract type BaseKernel <: Kernel end
-
 
 """
 Gaussian kernel / radial basis function, RBF
@@ -174,6 +172,8 @@ Kernel product
 mutable struct KernelProduct <: Kernel
     coef::Float64
     kernel::Vector{<: BaseKernel}
+    KernelProduct(k::BaseKernel) = new(1.0, [k])
+    KernelProduct(coef::Real, k::BaseKernel) = new(Float64(coef), [k])
 end
 
 function ker(k::KernelProduct, x1::Array, x2::Array)
@@ -205,6 +205,18 @@ function update!(k::KernelProduct, params::Real...)
     end
 end
 
+*(coef::Real, k::BaseKernel) =  KernelProduct(coef, k)
+*(k::BaseKernel, coef::Real) = coef * k
+*(coef::Real, k::KernelProduct) =  KernelProduct(Float64(coef) * k.coef, k.kernel)
+*(k::KernelProduct, coef::Real) = coef * k
+
+*(k1::BaseKernel, k2::BaseKernel) = KernelProduct(1.0, [k1, k2])
+*(k1::KernelProduct, k2::BaseKernel) = KernelProduct(k1.coef, [k1.kernel..., k2])
+*(k1::BaseKernel, k2::KernelProduct) = k2 * k1
+*(k1::KernelProduct, k2::KernelProduct) = KernelProduct(k1.coef * k2.coef, [k1.kernel..., k2.kernel...])
+
+-(k::BaseKernel) = -1.0 * k
+-(k::KernelProduct) = -1.0 * k
 
 """
 Kernel sum
@@ -234,24 +246,17 @@ function update!(k::KernelSum, params::Real...)
     end
 end
 
-
-*(coef::Real, k::BaseKernel) =  KernelProduct(Float64(coef), [k])
-*(k::BaseKernel, coef::Real) = *(coef::Real, k::BaseKernel) 
-*(coef::Real, k::KernelProduct) =  KernelProduct(Float64(coef) * k.coef, k.kernel)
-*(k::KernelProduct, coef::Real) = *(coef::Real, k::KernelProduct)
 *(coef::Real, k::KernelSum) =  KernelSum([coef * kr for kr in k.kernel])
-*(k::KernelSum, coef::Real) = *(coef::Real, k::KernelSum)
+*(k::KernelSum, coef::Real) = coef * k
 
++(k1::KernelProduct, k2::KernelProduct) = KernelSum([k1, k2])
++(k1::KernelSum, k2::KernelProduct) = KernelSum([k1.kernel..., k2])
 
-*(k1::BaseKernel, k2::BaseKernel) = KernelProduct(1.0, [k1, k2])
-*(k1::KernelProduct, k2::BaseKernel) = KernelProduct(k1.coef, [k1.kernel..., k2])
++(k1::BaseKernel, k2::BaseKernel) = KernelProduct(k1) + KernelProduct(k2)
++(k1::Kernel, k2::BaseKernel) = k1 + KernelProduct(k2)
++(k1::BaseKernel, k2::Kernel) = k2 + k1
 
-+(k1::Kernel, k2::Kernel) = KernelSum([k1, k2])
--(k1::Kernel, k2::Kernel) = KernelSum([k1, -1.0 * k2])
-
-+(k1::KernelSum, k2::Kernel) = KernelSum([k1.kernel..., k2])
--(k1::KernelSum, k2::Kernel) = KernelSum([k1.kernel..., -k2])
-
+-(k1::Kernel, k2::Kernel) = k1 + (-k2)
 
 """
 Gaussian Process
