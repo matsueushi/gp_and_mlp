@@ -41,7 +41,6 @@ mutable struct GaussianKernel <: BaseKernel
 end
 
 function ker(k::GaussianKernel, x1::Array{<: Real}, x2::Array{<: Real})
-    Base.length(x1) == Base.length(x2) || throw(DimensionMismatch("size of x1 not equal to size of x2"))
     exp(- sum((x1 - x2).^2) / k.theta)
 end
 
@@ -65,7 +64,6 @@ Linear kernel
 struct LinearKernel <: BaseKernel end
 
 function ker(k::LinearKernel, x1::Array{<: Real}, x2::Array{<: Real})
-    Base.length(x1) == Base.length(x2) || throw(DimensionMismatch("size of x1 not equal to size of x2"))
     1 + dot(x1, x2)
 end
 
@@ -88,7 +86,6 @@ mutable struct ExponentialKernel <: BaseKernel
 end
 
 function ker(k::ExponentialKernel, x1::Array{<: Real}, x2::Array{<: Real})
-    Base.length(x1) == Base.length(x2) || throw(DimensionMismatch("size of x1 not equal to size of x2"))
     exp(-sum(abs.(x1 - x2)) / k.theta)
 end
 
@@ -115,7 +112,6 @@ mutable struct PeriodicKernel <: BaseKernel
 end
 
 function ker(k::PeriodicKernel, x1::Array{<: Real}, x2::Array{<: Real})
-    Base.length(x1) == Base.length(x2) || throw(DimensionMismatch("size of x1 not equal to size of x2"))
     exp(k.theta1 * cos(sum(abs.(x1 - x2) / k.theta2)))
 end
 
@@ -146,7 +142,6 @@ mutable struct MaternKernel <: BaseKernel
 end
 
 function ker(k::MaternKernel, x1::Array{<: Real}, x2::Array{<: Real})
-    Base.length(x1) == Base.length(x2) || throw(DimensionMismatch("size of x1 not equal to size of x2"))
     if x1 == x2
         return 1.0
     end
@@ -167,6 +162,23 @@ end
 
 
 """
+Constant kernel
+"""
+struct ConstantKernel <: BaseKernel end
+
+function ker(k::ConstantKernel, x1::Array{<: Real}, x2::Array{<: Real})
+    Base.length(x1) == Base.length(x2) || throw(DimensionMismatch("size of x1 not equal to size of x2"))
+    return 1.0
+end
+
+function logderiv(k::ConstantKernel, x1::Array{<: Real}, x2::Array{<: Real})
+    []
+end
+
+update!(k::ConstantKernel) = k
+
+
+"""
 Kernel product
 """
 mutable struct KernelProduct <: Kernel
@@ -177,7 +189,6 @@ mutable struct KernelProduct <: Kernel
 end
 
 function ker(k::KernelProduct, x1::Array, x2::Array)
-    Base.length(x1) == Base.length(x2) || throw(DimensionMismatch("size of x1 not equal to size of x2"))
     k.coef * prod([ker(kr, x1, x2) for kr in k.kernel])
 end
 
