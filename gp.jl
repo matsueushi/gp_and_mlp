@@ -19,7 +19,6 @@ function cov(k::Kernel, xs1::Array, xs2::Array)
     for i in 1:n1
         for j in 1:n2
             c[i, j] = ker(k, xs1[i, :], xs2[j, :])
-
         end
     end
     c
