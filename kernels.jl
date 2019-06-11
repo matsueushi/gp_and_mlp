@@ -4,20 +4,6 @@ Abstract kernel
 abstract type Kernel end
 Base.length(k::Kernel) = Base.length(fieldnames(typeof(k)))
 
-function cov(k::Kernel, xs1::Array, xs2::Array)
-    # covariance matrix
-    n1 = size(xs1, 1)
-    n2 = size(xs2, 1)
-    c = zeros(n1, n2)
-    for i in 1:n1
-        for j in 1:n2
-            c[i, j] = ker(k, xs1[i, :], xs2[j, :])
-        end
-    end
-    c
-end
-
-cov(k::Kernel, xs::Array) = cov(k, xs, xs)
 
 abstract type BaseKernel <: Kernel end
 

@@ -6,14 +6,40 @@ using SpecialFunctions
 
 include("kernels.jl")
 
+
+abstract type GPMethod end
+"""
+Standard method
+"""
+struct GPStandard <: GPMethod end
+
+function cov(_::GPStandard, k::Kernel, xs1::Array, xs2::Array)
+    # covariance matrix
+    n1 = size(xs1, 1)
+    n2 = size(xs2, 1)
+    c = zeros(n1, n2)
+    for i in 1:n1
+        for j in 1:n2
+            c[i, j] = ker(k, xs1[i, :], xs2[j, :])
+        end
+    end
+    c
+end
+
+cov(gpm::GPStandard, k::Kernel, xs::Array) = cov(gpm, k, xs, xs)
+
+
 """
 Gaussian Process
 """
 mutable struct GaussianProcess{K <: Kernel}
     kernel::K
     eta::Float64 # regularization parameter
-    GaussianProcess(kernel::K) where {K <: Kernel} = new{K}(kernel, 1e-6)
-    GaussianProcess(kernel::K, eta::Real) where {K <: Kernel} = new{K}(kernel, Float64(eta))
+    method::GPMethod
+    GaussianProcess(kernel::K) where {K <: Kernel} = new{K}(kernel, 1e-6, GPStandard())
+    function GaussianProcess(kernel::K, eta::Real) where {K <: Kernel}
+        new{K}(kernel, Float64(eta), GPStandard())
+    end
 end
 
 function update!(gp::GaussianProcess, params::Real...)
@@ -24,12 +50,12 @@ end
 
 Base.length(gp::GaussianProcess) = Base.length(gp.kernel) + 1
 
-cov(gp::GaussianProcess, xs1::Array, xs2::Array) = cov(gp.kernel, xs1, xs2)
+cov(gp::GaussianProcess, xs1::Array, xs2::Array) = cov(gp.method, gp.kernel, xs1, xs2)
 
 function cov(gp::GaussianProcess, xs::Array)
     # regularlize
     n = size(xs, 1)
-    cov(gp.kernel, xs) + gp.eta * Matrix{Float64}(I, n, n) 
+    cov(gp, xs, xs) + gp.eta * Matrix{Float64}(I, n, n) 
 end
 
 function dist(gp::GaussianProcess, xs::Array)
