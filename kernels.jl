@@ -28,27 +28,31 @@ abstract type BaseKernel <: Kernel end
 Gaussian kernel / radial basis function, RBF
 """
 mutable struct GaussianKernel <: BaseKernel
-    theta::Float64
-    function GaussianKernel(theta::Real)
-        @assert theta != 0
-        new(Float64(theta))
+    θ::Float64
+    function GaussianKernel(θ::Float64)
+        @assert θ != 0
+        new(θ)
     end
 end
 
-function ker(k::GaussianKernel, x1::Array{<: Real}, x2::Array{<: Real})
-    exp(- sum((x1 - x2).^2) / k.theta)
+# Outer constructors
+GaussianKernel(θ::Real) = GaussianKernel(Float64(θ))
+GaussianKernel() = GaussianKernel(1.0)
+
+function ker(k::GaussianKernel, x1::Array{T}, x2::Array{S}) where {T <: Real,S <: Real}
+    exp(- sum((x1 - x2).^2) / k.θ)
 end
 
-function logderiv(k::GaussianKernel, x1::Array{<: Real}, x2::Array{<: Real})
+function logderiv(k::GaussianKernel, x1::Array{T}, x2::Array{S}) where {T <: Real,S <: Real}
     # derivative for parameter estimation
     # return ∂g/∂τ, where
     # g(τ) = ker(exp(τ)), exp(τ)=θ
-    [ker(k, x1, x2) / k.theta * sum((x1 - x2).^2)]
+    [ker(k, x1, x2) / k.θ * sum((x1 - x2).^2)]
 end
 
-function update!(k::GaussianKernel, theta::Real)
-    @assert theta != 0
-    k.theta = Float64(theta)
+function update!(k::GaussianKernel, θ::Real)
+    @assert θ != 0
+    k.θ = Float64(θ)
     k
 end
 
@@ -58,11 +62,11 @@ Linear kernel
 """
 struct LinearKernel <: BaseKernel end
 
-function ker(k::LinearKernel, x1::Array{<: Real}, x2::Array{<: Real})
+function ker(k::LinearKernel, x1::Array{T}, x2::Array{S}) where {T <: Real,S <: Real}
     1 + dot(x1, x2)
 end
 
-function logderiv(k::LinearKernel, x1::Array{<: Real}, x2::Array{<: Real})
+function logderiv(k::LinearKernel, x1::Array{T}, x2::Array{S}) where {T <: Real,S <: Real}
     []
 end
 
@@ -73,23 +77,28 @@ update!(k::LinearKernel) = k
 Exponential kernel, Ornstein-Uhlenbeck
 """
 mutable struct ExponentialKernel <: BaseKernel
-    theta::Float64
-    function ExponentialKernel(theta::Real)
-        @assert theta != 0
-        new(Float64(theta))
+    θ::Float64
+    function ExponentialKernel(θ::Float64)
+        @assert θ != 0
+        new(θ)
     end
 end
 
-function ker(k::ExponentialKernel, x1::Array{<: Real}, x2::Array{<: Real})
-    exp(-sum(abs.(x1 - x2)) / k.theta)
+# Outer constructors
+ExponentialKernel(θ::Real) = ExponentialKernel(Float64(θ))
+ExponentialKernel() = ExponentialKernel(1.0)
+
+
+function ker(k::ExponentialKernel, x1::Array{T}, x2::Array{S}) where {T <: Real,S <: Real}
+    exp(-sum(abs.(x1 - x2)) / k.θ)
 end
 
-function logderiv(k::ExponentialKernel, x1::Array{<: Real}, x2::Array{<: Real})
-    [ker(k, x1, x2) / k.theta * sum(abs.(x1 - x2))]
+function logderiv(k::ExponentialKernel, x1::Array{T}, x2::Array{S}) where {T <: Real,S <: Real}
+    [ker(k, x1, x2) / k.θ * sum(abs.(x1 - x2))]
 end
 
-function update!(k::ExponentialKernel, theta::Real)
-    k.theta = Float64(theta)
+function update!(k::ExponentialKernel, θ::Real)
+    k.θ = Float64(θ)
     k
 end
 
@@ -98,27 +107,32 @@ end
 Periodic kernel
 """
 mutable struct PeriodicKernel <: BaseKernel
-    theta1::Float64
-    theta2::Float64
-    function PeriodicKernel(theta1::Real, theta2::Real)
-        @assert theta2 != 0
-        new(Float64(theta1), Float64(theta2))
+    θ1::Float64
+    θ2::Float64
+    function PeriodicKernel(θ1::Float64, θ2::Float64)
+        @assert θ2 != 0
+        new(θ1, θ2)
     end
 end
 
-function ker(k::PeriodicKernel, x1::Array{<: Real}, x2::Array{<: Real})
-    exp(k.theta1 * cos(sum(abs.(x1 - x2) / k.theta2)))
+# Outer constructors
+PeriodicKernel(θ1::Real, θ2::Real) = PeriodicKernel(Float64(θ1), Float64(θ2))
+PeriodicKernel() = PeriodicKernel(1.0, 1.0)
+
+
+function ker(k::PeriodicKernel, x1::Array{T}, x2::Array{S}) where {T <: Real,S <: Real}
+    exp(k.θ1 * cos(sum(abs.(x1 - x2) / k.θ2)))
 end
 
-function logderiv(k::PeriodicKernel, x1::Array{<: Real}, x2::Array{<: Real})
+function logderiv(k::PeriodicKernel, x1::Array{T}, x2::Array{S}) where {T <: Real,S <: Real}
     k_ker = ker(x1, x2)
-    t = sum(abs.(x1 - x2) / k.theta2)
-    [k.theta1 * cos(t) * k_ker, k.theta1 * t * sin(t) * k_ker]
+    t = sum(abs.(x1 - x2) / k.θ2)
+    [k.θ1 * cos(t) * k_ker, k.θ1 * t * sin(t) * k_ker]
 end
 
-function update!(k::PeriodicKernel, theta1::Real, theta2::Real)
-    k.theta1 = Float64(theta1)
-    k.theta2 = Float64(theta2)
+function update!(k::PeriodicKernel, θ1::Real, θ2::Real)
+    k.θ1 = Float64(θ1)
+    k.θ2 = Float64(θ2)
     k
 end
 
@@ -128,30 +142,34 @@ Matern kernel
 https://en.wikipedia.org/wiki/Mat%C3%A9rn_covariance_function
 """
 mutable struct MaternKernel <: BaseKernel
-    nu::Float64
-    theta::Float64
-    function MaternKernel(nu::Real, theta::Real)
-        @assert theta != 0
-        new(Float64(nu), Float64(theta))
+    ν::Float64
+    θ::Float64
+    function MaternKernel(ν::Float64, θ::Float64)
+        @assert θ != 0
+        new(ν, θ)
     end
 end
 
-function ker(k::MaternKernel, x1::Array{<: Real}, x2::Array{<: Real})
+# Outer constructors
+MaternKernel(ν::Real, θ::Real) = MaternKernel(Float64(ν), Float64(θ))
+
+
+function ker(k::MaternKernel, x1::Array{T}, x2::Array{S}) where {T <: Real,S <: Real}
     if x1 == x2
         return 1.0
     end
     r = sum(abs.(x1 - x2))
-    t = sqrt(2 * k.nu) * r / k.theta
-    2^(1 - k.nu) / gamma(k.nu) * t^k.nu * besselk(k.nu, t)
+    t = sqrt(2 * k.ν) * r / k.θ
+    2^(1 - k.ν) / gamma(k.ν) * t^k.ν * besselk(k.ν, t)
 end
 
-function logderiv(k::MaternKernel, x1::Array{<: Real}, x2::Array{<: Real})
+function logderiv(k::MaternKernel, x1::Array{T}, x2::Array{S}) where {T <: Real,S <: Real}
     throw("unimplemented")
 end
 
-function update!(k::MaternKernel, nu::Real, theta::Real)
-    k.nu = Float64(nu)
-    k.theta = Float64(theta)
+function update!(k::MaternKernel, ν::Real, θ::Real)
+    k.ν = Float64(ν)
+    k.θ = Float64(θ)
     k
 end
 
@@ -161,16 +179,17 @@ Constant kernel
 """
 struct ConstantKernel <: BaseKernel end
 
-function ker(k::ConstantKernel, x1::Array{<: Real}, x2::Array{<: Real})
+function ker(k::ConstantKernel, x1::Array{T}, x2::Array{S}) where {T <: Real,S <: Real}
     Base.length(x1) == Base.length(x2) || throw(DimensionMismatch("size of x1 not equal to size of x2"))
     return 1.0
 end
 
-function logderiv(k::ConstantKernel, x1::Array{<: Real}, x2::Array{<: Real})
+function logderiv(k::ConstantKernel, x1::Array{T}, x2::Array{S}) where {T <: Real,S <: Real}
     []
 end
 
 update!(k::ConstantKernel) = k
+
 
 """
 Kernel product
@@ -178,9 +197,12 @@ Kernel product
 mutable struct KernelProduct <: Kernel
     coef::Float64
     kernel::Vector{<: BaseKernel}
-    KernelProduct(k::BaseKernel) = new(1.0, [k])
-    KernelProduct(coef::Real, k::BaseKernel) = new(Float64(coef), [k])
 end
+
+# Outer constructors
+KernelProduct(k::BaseKernel) = KernelProduct(1.0, [k])
+KernelProduct(coef::Real, k::BaseKernel) = KernelProduct(Float64(coef), [k])
+
 
 function ker(k::KernelProduct, x1::Array, x2::Array)
     k.coef * prod([ker(kr, x1, x2) for kr in k.kernel])
@@ -223,11 +245,12 @@ end
 -(k::BaseKernel) = -1.0 * k
 -(k::KernelProduct) = -1.0 * k
 
+
 """
 Kernel sum
 """
 mutable struct KernelSum <: Kernel
-    kernel::Vector{<: KernelProduct}
+    kernel::Vector{KernelProduct}
 end
 
 function ker(k::KernelSum, x1::Array, x2::Array)
