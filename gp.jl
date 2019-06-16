@@ -7,56 +7,66 @@ using SpecialFunctions
 include("kernels.jl")
 
 
-abstract type GPMethod end
+"""
+Kernel with noise
+"""
+mutable struct GPKernel{K <: Kernel}
+    kernel::K
+    eta::Float64 # regularization parameter
+end
+
+function GPKernel(kernel::K, eta::T) where {K <: Kernel,T <: Real}
+    new{K}(kernel, Float64(eta))
+end
+
+function update!(gpk::GPKernel, params::Real...)
+    update!(gpk.kernel, params[1:end - 1]...)
+    gpk.eta = params[end]
+    gpk
+end
+
+Base.length(gpk::GPKernel) = Base.length(gpk.kernel) + 1
+
+
+"""
+Prediction Method
+"""
+abstract type PredictMethod end
+
 """
 Standard method
 """
-struct GPStandard <: GPMethod end
+struct GPStandard <: PredictMethod end
 
-function cov(_::GPStandard, k::Kernel, xs1::Array, xs2::Array)
-    # covariance matrix
-    n1 = size(xs1, 1)
-    n2 = size(xs2, 1)
-    c = zeros(n1, n2)
-    for i in 1:n1
-        for j in 1:n2
-            c[i, j] = ker(k, xs1[i, :], xs2[j, :])
-        end
-    end
-    c
+cov(_::GPStandard, k::GPKernel, xs1::Array, xs2::Array) = cov(k.kernel, xs1, xs2)
+
+function cov(_::GPStandard, k::GPKernel, xs::Array)
+    # regularlize
+    n = size(xs, 1)
+    cov(k.kernel, xs, xs) + k.eta * Matrix{Float64}(I, n, n) 
 end
-
-cov(gpm::GPStandard, k::Kernel, xs::Array) = cov(gpm, k, xs, xs)
 
 
 """
 Gaussian Process
 """
 mutable struct GaussianProcess{K <: Kernel}
-    kernel::K
-    eta::Float64 # regularization parameter
-    method::GPMethod
-    GaussianProcess(kernel::K) where {K <: Kernel} = new{K}(kernel, 1e-6, GPStandard())
+    gpk::GPKernel{K}
+    method::PredictMethod
+    GaussianProcess(kernel::K) where {K <: Kernel} = new{K}(GPKernel{K}(kernel, 1e-6), GPStandard())
     function GaussianProcess(kernel::K, eta::Real) where {K <: Kernel}
-        new{K}(kernel, Float64(eta), GPStandard())
+        new{K}(GPKernel{K}(kernel, eta), GPStandard())
     end
 end
 
 function update!(gp::GaussianProcess, params::Real...)
-    update!(gp.kernel, params[1:end - 1]...)
-    gp.eta = params[end]
+    update!(gp.gpk, params...)
     gp
 end
 
-Base.length(gp::GaussianProcess) = Base.length(gp.kernel) + 1
+cov(gp::GaussianProcess, xs1::Array, xs2::Array) = cov(gp.method, gp.gpk, xs1, xs2)
 
-cov(gp::GaussianProcess, xs1::Array, xs2::Array) = cov(gp.method, gp.kernel, xs1, xs2)
-
-function cov(gp::GaussianProcess, xs::Array)
-    # regularlize
-    n = size(xs, 1)
-    cov(gp, xs, xs) + gp.eta * Matrix{Float64}(I, n, n) 
-end
+cov(gp::GaussianProcess, xs::Array) = cov(gp.method, gp.gpk, xs)
 
 function dist(gp::GaussianProcess, xs::Array)
     l = size(xs, 1)
@@ -98,10 +108,10 @@ function fg!(gp::GaussianProcess, xs::Array, ys::Array, F, G, params)
 
     # gradient
     if G != nothing
-        d_tensor = zeros(n, n, Base.length(gp))
+        d_tensor = zeros(n, n, Base.length(gp.gpk))
         for i in 1:n
             for j in 1:n
-                t = logderiv(gp.kernel, xs[i, :], xs[j, :])
+                t = logderiv(gp.gpk.kernel, xs[i, :], xs[j, :])
                 d_tensor[i, j, 1:end - 1] = t
             end
         end
