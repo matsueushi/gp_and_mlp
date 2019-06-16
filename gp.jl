@@ -12,16 +12,16 @@ Kernel with noise
 """
 mutable struct GPKernel{K <: Kernel}
     kernel::K
-    eta::Float64 # regularization parameter
+    η::Float64 # regularization parameter
 end
 
-function GPKernel(kernel::K, eta::T) where {K <: Kernel,T <: Real}
-    new{K}(kernel, Float64(eta))
+function GPKernel(kernel::K, η::T) where {K <: Kernel,T <: Real}
+    GPKernel(kernel, Float64(η))
 end
 
 function update!(gpk::GPKernel, params::Real...)
     update!(gpk.kernel, params[1:end - 1]...)
-    gpk.eta = params[end]
+    gpk.η = params[end]
     gpk
 end
 
@@ -38,26 +38,42 @@ Standard method
 """
 struct GPStandard <: PredictMethod end
 
-cov(_::GPStandard, k::GPKernel, xs1::Array, xs2::Array) = cov(k.kernel, xs1, xs2)
+cov(_::GPStandard, gpk::GPKernel, xs1::Array, xs2::Array) = cov(gpk.kernel, xs1, xs2)
 
-function cov(_::GPStandard, k::GPKernel, xs::Array)
+function cov(_::GPStandard, gpk::GPKernel, xs::Array)
     # regularlize
     n = size(xs, 1)
-    cov(k.kernel, xs, xs) + k.eta * Matrix{Float64}(I, n, n) 
+    cov(gpk.kernel, xs, xs) + gpk.η * Matrix{Float64}(I, n, n) 
+end
+
+function predict(gps::GPStandard, gpk::GPKernel, xtest::Array, xtrain::Array, ytrain::Array{T}) where {T <: Real}
+    Base.length(xtrain) == Base.length(ytrain) || throw(DimensionMismatch("size of x1 not equal to size of x2"))
+    k_star = cov(gps, gpk, xtrain, xtest)
+    s = cov(gps, gpk, xtest)
+
+    k_inv = inv(cov(gps, gpk, xtrain))
+    k_star_inv = k_star' * k_inv
+    mu = k_star_inv * ytrain
+    sig = Symmetric(s - k_star_inv * k_star)
+    MvNormal(mu, sig)
 end
 
 
 """
 Gaussian Process
 """
-mutable struct GaussianProcess{K <: Kernel}
-    gpk::GPKernel{K}
+mutable struct GaussianProcess
+    gpk::GPKernel{K} where {K <: Kernel}
     method::PredictMethod
-    GaussianProcess(kernel::K) where {K <: Kernel} = new{K}(GPKernel{K}(kernel, 1e-6), GPStandard())
-    function GaussianProcess(kernel::K, eta::Real) where {K <: Kernel}
-        new{K}(GPKernel{K}(kernel, eta), GPStandard())
-    end
 end
+
+# Outer Constructors
+function GaussianProcess(kernel::K, η::Real) where {K <: Kernel}
+    GaussianProcess(GPKernel(kernel, η), GPStandard())
+end
+
+GaussianProcess(kernel::K) where {K <: Kernel} = GaussianProcess(kernel, 1e-6)
+
 
 function update!(gp::GaussianProcess, params::Real...)
     update!(gp.gpk, params...)
@@ -74,16 +90,8 @@ function dist(gp::GaussianProcess, xs::Array)
     MvNormal(zeros(l), k)
 end
 
-function predict(gp::GaussianProcess, xtest::Array, xtrain::Array, ytrain::Array{<: Real})
-    Base.length(xtrain) == Base.length(ytrain) || throw(DimensionMismatch("size of x1 not equal to size of x2"))
-    k_star = cov(gp, xtrain, xtest)
-    s = cov(gp, xtest)
-
-    k_inv = inv(cov(gp, xtrain))
-    k_star_inv = k_star' * k_inv
-    mu = k_star_inv * ytrain
-    sig = Symmetric(s - k_star_inv * k_star)
-    MvNormal(mu, sig)
+function predict(gp::GaussianProcess, xtest::Array, xtrain::Array, ytrain::Array{T}) where {T <: Real}
+    predict(gp.method, gp.gpk, xtest, xtrain, ytrain)
 end
 
 function logp(gp::GaussianProcess, xs::Array, ys::Array)
@@ -115,7 +123,7 @@ function fg!(gp::GaussianProcess, xs::Array, ys::Array, F, G, params)
                 d_tensor[i, j, 1:end - 1] = t
             end
         end
-        d_tensor[:, :, end] = y[end] .* Matrix{Float64}(I, n, n) # eta
+        d_tensor[:, :, end] = y[end] .* Matrix{Float64}(I, n, n) # η
         G .= mapslices(deriv, d_tensor, dims = [1, 2])[:]
     end
 

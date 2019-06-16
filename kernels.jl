@@ -196,7 +196,7 @@ Kernel product
 """
 mutable struct KernelProduct <: Kernel
     coef::Float64
-    kernel::Vector{<: BaseKernel}
+    kernel::Vector{T} where {T <: BaseKernel}
 end
 
 # Outer constructors
