@@ -33,12 +33,11 @@ Prediction Method
 """
 abstract type PredictMethod end
 
+
 """
 Standard method
 """
 struct GPStandard <: PredictMethod end
-
-cov(_::GPStandard, gpk::GPKernel, xs1::Array, xs2::Array) = cov(gpk.kernel, xs1, xs2)
 
 function cov(_::GPStandard, gpk::GPKernel, xs::Array)
     # regularlize
@@ -48,7 +47,7 @@ end
 
 function predict(gps::GPStandard, gpk::GPKernel, xtest::Array, xtrain::Array, ytrain::Array{T}) where {T <: Real}
     Base.length(xtrain) == Base.length(ytrain) || throw(DimensionMismatch("size of x1 not equal to size of x2"))
-    k_star = cov(gps, gpk, xtrain, xtest)
+    k_star = cov(gpk.kernel, xtrain, xtest)
     s = cov(gps, gpk, xtest)
 
     k_inv = inv(cov(gps, gpk, xtrain))
@@ -57,6 +56,32 @@ function predict(gps::GPStandard, gpk::GPKernel, xtest::Array, xtrain::Array, yt
     sig = Symmetric(s - k_star_inv * k_star)
     MvNormal(mu, sig)
 end
+
+
+"""
+Inducing variable method
+"""
+mutable struct IVM <: PredictMethod
+    ind_xs::Array
+end
+
+function cov(ivm::IVM, gpk::GPKernel, xs::Array)
+    # compute K_mm, K_mn
+    K_mm = cov(gpk.kernel, ivm.ind_xs, ivm.ind_xs)
+    K_mn = cov(gpk.kernel, ivm.ind_xs, xs)
+
+    n = size(xs, 1)
+
+    function lambda(x, k)
+        ker(gpk.kernel, x, x) - k' * K_mm * k
+    end
+
+    Λ = Diagonal([lambda(xs[i, :], K_mn[i, :]) for i in 1:n])
+
+
+end
+
+
 
 
 """
@@ -80,7 +105,7 @@ function update!(gp::GaussianProcess, params::Real...)
     gp
 end
 
-cov(gp::GaussianProcess, xs1::Array, xs2::Array) = cov(gp.method, gp.gpk, xs1, xs2)
+cov(gp::GaussianProcess, xs1::Array, xs2::Array) = cov(gp.gpk.kernel, xs1, xs2)
 
 cov(gp::GaussianProcess, xs::Array) = cov(gp.method, gp.gpk, xs)
 
