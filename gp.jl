@@ -45,7 +45,7 @@ function cov(_::GPStandard, gpk::GPKernel, xs::Array)
     cov(gpk.kernel, xs, xs) + gpk.η * Matrix{Float64}(I, n, n) 
 end
 
-function predict(gps::GPStandard, gpk::GPKernel, xtest::Array, xtrain::Array, ytrain::Array{T}) where {T <: Real}
+function _predict(gps::GPStandard, gpk::GPKernel,  xtrain::Array, ytrain::Array{T}, xtest::Array) where {T <: Real}
     Base.length(xtrain) == Base.length(ytrain) || throw(DimensionMismatch("size of x1 not equal to size of x2"))
     k_star = cov(gpk.kernel, xtrain, xtest)
     s = cov(gps, gpk, xtest)
@@ -54,7 +54,7 @@ function predict(gps::GPStandard, gpk::GPKernel, xtest::Array, xtrain::Array, yt
     k_star_inv = k_star' * k_inv
     mu = k_star_inv * ytrain
     sig = Symmetric(s - k_star_inv * k_star)
-    MvNormal(mu, sig)
+    mu, sig
 end
 
 
@@ -115,8 +115,14 @@ function dist(gp::GaussianProcess, xs::Array)
     MvNormal(zeros(l), k)
 end
 
-function predict(gp::GaussianProcess, xtest::Array, xtrain::Array, ytrain::Array{T}) where {T <: Real}
-    predict(gp.method, gp.gpk, xtest, xtrain, ytrain)
+function predict(gp::GaussianProcess, xtrain::Array{S}, ytrain::Array{T}, xtest::Array{S}) where {T <: Real,S}
+    mu, sig = _predict(gp.method, gp.gpk, xtrain, ytrain, xtest)
+    MvNormal(mu, sig)
+end
+
+function predict(gp::GaussianProcess, xtrain::Array{S}, ytrain::Array{T}, xtest::S) where {T <: Real,S}
+    mu, sig = _predict(gp.method, gp.gpk, xtrain, ytrain, [xtest])
+    Normal(mu[1], sig[1])
 end
 
 function logp(gp::GaussianProcess, xs::Array, ys::Array)
