@@ -7,19 +7,19 @@ Base.length(k::Kernel) = Base.length(fieldnames(typeof(k)))
 """
 Covariance matrix
 """
-function cov(k::Kernel, xs1::Array, xs2::Array)
+function cov(k::Kernel, xs1::AbstractVector, xs2::AbstractVector)
     n1 = size(xs1, 1)
     n2 = size(xs2, 1)
     c = zeros(n1, n2)
     for i in 1:n1
         for j in 1:n2
-            c[i, j] = ker(k, xs1[i, :], xs2[j, :])
+            c[i, j] = ker(k, xs1[i], xs2[j])
         end
     end
     c
 end
 
-cov(k::Kernel, xs::Array) = cov(k, xs, xs)
+cov(k::Kernel, xs::AbstractVector) = cov(k, xs, xs)
 
 
 abstract type BaseKernel <: Kernel end
@@ -39,14 +39,20 @@ end
 GaussianKernel(θ::Real) = GaussianKernel(Float64(θ))
 GaussianKernel() = GaussianKernel(1.0)
 
-function ker(k::GaussianKernel, x1::Array{T}, x2::Array{S}) where {T <: Real,S <: Real}
-    exp(- sum((x1 - x2).^2) / k.θ)
+ker(k::GaussianKernel, x1::Real, x2::Real) = exp(-(x1 - x2)^2 / k.θ)
+
+function ker(k::GaussianKernel, x1::AbstractVector{T}, x2::AbstractVector{S}) where {T <: Real,S <: Real}
+    exp(-sum((x1 - x2).^2) / k.θ)
 end
 
-function logderiv(k::GaussianKernel, x1::Array{T}, x2::Array{S}) where {T <: Real,S <: Real}
+function logderiv(k::GaussianKernel, x1::Real, x2::Real)
     # derivative for parameter estimation
     # return ∂g/∂τ, where
     # g(τ) = ker(exp(τ)), exp(τ)=θ
+    [ker(k, x1, x2) / k.θ * (x1 - x2)^2]
+end
+
+function logderiv(k::GaussianKernel, x1::AbstractVector{T}, x2::AbstractVector{S}) where {T <: Real,S <: Real}
     [ker(k, x1, x2) / k.θ * sum((x1 - x2).^2)]
 end
 
@@ -62,11 +68,15 @@ Linear kernel
 """
 struct LinearKernel <: BaseKernel end
 
-function ker(k::LinearKernel, x1::Array{T}, x2::Array{S}) where {T <: Real,S <: Real}
+ker(k::LinearKernel, x1::Real, x2::Real) = 1 + x1 * x2
+
+function ker(k::LinearKernel, x1::AbstractVector{T}, x2::AbstractVector{S}) where {T <: Real,S <: Real}
     1 + dot(x1, x2)
 end
 
-function logderiv(k::LinearKernel, x1::Array{T}, x2::Array{S}) where {T <: Real,S <: Real}
+logderiv(k::LinearKernel, x1::Real, x2::Real) =  []
+
+function logderiv(k::LinearKernel, x1::AbstractVector{T}, x2::AbstractVector{S}) where {T <: Real,S <: Real}
     []
 end
 
@@ -88,12 +98,17 @@ end
 ExponentialKernel(θ::Real) = ExponentialKernel(Float64(θ))
 ExponentialKernel() = ExponentialKernel(1.0)
 
+ker(k::ExponentialKernel, x1::Real, x2::Real) = exp(-abs(x1 - x2) / k.θ)
 
-function ker(k::ExponentialKernel, x1::Array{T}, x2::Array{S}) where {T <: Real,S <: Real}
+function ker(k::ExponentialKernel, x1::AbstractVector{T}, x2::AbstractVector{S}) where {T <: Real,S <: Real}
     exp(-sum(abs.(x1 - x2)) / k.θ)
 end
 
-function logderiv(k::ExponentialKernel, x1::Array{T}, x2::Array{S}) where {T <: Real,S <: Real}
+function logderiv(k::ExponentialKernel, x1::Real, x2::Real)
+    [ker(k, x1, x2) / k.θ * abs(x1 - x2)]
+end
+
+function logderiv(k::ExponentialKernel, x1::AbstractVector{T}, x2::AbstractVector{S}) where {T <: Real,S <: Real}
     [ker(k, x1, x2) / k.θ * sum(abs.(x1 - x2))]
 end
 
@@ -119,12 +134,21 @@ end
 PeriodicKernel(θ1::Real, θ2::Real) = PeriodicKernel(Float64(θ1), Float64(θ2))
 PeriodicKernel() = PeriodicKernel(1.0, 1.0)
 
-
-function ker(k::PeriodicKernel, x1::Array{T}, x2::Array{S}) where {T <: Real,S <: Real}
-    exp(k.θ1 * cos(sum(abs.(x1 - x2) / k.θ2)))
+function ker(k::PeriodicKernel, x1::Real, x2::Real)
+    exp(k.θ1 * cos(abs(x1 - x2) / k.θ2))
 end
 
-function logderiv(k::PeriodicKernel, x1::Array{T}, x2::Array{S}) where {T <: Real,S <: Real}
+function ker(k::PeriodicKernel, x1::AbstractVector{T}, x2::AbstractVector{S}) where {T <: Real,S <: Real}
+    exp(k.θ1 * cos(sum(abs.(x1 - x2)) / k.θ2))
+end
+
+function logderiv(k::PeriodicKernel, x1::Real, x2::Real)
+    k_ker = ker(x1, x2)
+    t = abs(x1 - x2) / k.θ2
+    [k.θ1 * cos(t) * k_ker, k.θ1 * t * sin(t) * k_ker]
+end
+
+function logderiv(k::PeriodicKernel, x1::AbstractVector{T}, x2::AbstractVector{S}) where {T <: Real,S <: Real}
     k_ker = ker(x1, x2)
     t = sum(abs.(x1 - x2) / k.θ2)
     [k.θ1 * cos(t) * k_ker, k.θ1 * t * sin(t) * k_ker]
@@ -153,14 +177,26 @@ end
 # Outer constructors
 MaternKernel(ν::Real, θ::Real) = MaternKernel(Float64(ν), Float64(θ))
 
+function ker(k::MaternKernel, x1::Real, x2::Real)
+    if x1 == x2
+        return 1.0
+    end
+    r = abs(x1 - x2)
+    t = sqrt(2 * k.ν) * r / k.θ
+    2^(1 - k.ν) / gamma(k.ν) * t^k.ν * besselk(k.ν, t)
+end
 
-function ker(k::MaternKernel, x1::Array{T}, x2::Array{S}) where {T <: Real,S <: Real}
+function ker(k::MaternKernel, x1::AbstractVector{T}, x2::AbstractVector{S}) where {T <: Real,S <: Real}
     if x1 == x2
         return 1.0
     end
     r = sum(abs.(x1 - x2))
     t = sqrt(2 * k.ν) * r / k.θ
     2^(1 - k.ν) / gamma(k.ν) * t^k.ν * besselk(k.ν, t)
+end
+
+function logderiv(k::MaternKernel, x1::Real, x2::Real)
+    throw("unimplemented")
 end
 
 function logderiv(k::MaternKernel, x1::Array{T}, x2::Array{S}) where {T <: Real,S <: Real}
@@ -179,12 +215,16 @@ Constant kernel
 """
 struct ConstantKernel <: BaseKernel end
 
-function ker(k::ConstantKernel, x1::Array{T}, x2::Array{S}) where {T <: Real,S <: Real}
+ker(k::ConstantKernel, x1::Real, x2::Real) = 1.0
+
+function ker(k::ConstantKernel, x1::AbstractVector{T}, x2::AbstractVector{S}) where {T <: Real,S <: Real}
     Base.length(x1) == Base.length(x2) || throw(DimensionMismatch("size of x1 not equal to size of x2"))
     return 1.0
 end
 
-function logderiv(k::ConstantKernel, x1::Array{T}, x2::Array{S}) where {T <: Real,S <: Real}
+logderiv(k::ConstantKernel, x1::Real, x2::Real) = []
+
+function logderiv(k::ConstantKernel, x1::AbstractVector{T}, x2::AbstractVector{S}) where {T <: Real,S <: Real}
     []
 end
 
@@ -203,12 +243,11 @@ end
 KernelProduct(k::BaseKernel) = KernelProduct(1.0, [k])
 KernelProduct(coef::Real, k::BaseKernel) = KernelProduct(Float64(coef), [k])
 
-
-function ker(k::KernelProduct, x1::Array, x2::Array)
+function ker(k::KernelProduct, x1::S, x2::T) where {S,T}
     k.coef * prod([ker(kr, x1, x2) for kr in k.kernel])
 end
 
-function logderiv(k::KernelProduct, x1::Array, x2::Array)
+function logderiv(k::KernelProduct, x1::S, x2::T) where {S,T}
     ks = [ker(kr, x1, x2) for kr in k.kernel]
     mat = repeat(ks, Base.length(ks))
     for i in 1:Base.length(k.kernel)
@@ -253,12 +292,11 @@ mutable struct KernelSum <: Kernel
     kernel::Vector{KernelProduct}
 end
 
-function ker(k::KernelSum, x1::Array, x2::Array)
-    Base.length(x1) == Base.length(x2) || throw(DimensionMismatch("size of x1 not equal to size of x2"))
+function ker(k::KernelSum, x1::S, x2::T) where {S,T}
     sum([ker(kr, x1, x2) for kr in k.kernel])
 end
 
-function logderiv(k::KernelSum, x1::Array, x2::Array)
+function logderiv(k::KernelSum, x1::S, x2::T) where {S,T}
     vcat([logderiv(kr, x1, x2) for kr in k.kernel]...)
 end
 
