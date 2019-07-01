@@ -44,7 +44,7 @@ function cov(_::GPStandard, gpk::GPKernel, xs::AbstractVector)
 end
 
 function _predict(gps::GPStandard, gpk::GPKernel,  xtrain::AbstractVector{S}, 
-    ytrain::AbstractVector{T}, xtest::AbstractVector{S}) where {T <: Real,S}
+    ytrain::AbstractVector{T}, xtest::AbstractVector{R}) where {T <: Real,R,S}
 
     Base.length(xtrain) == Base.length(ytrain) || throw(DimensionMismatch("size of x1 not equal to size of x2"))
     k_star = cov(gpk.kernel, xtrain, xtest)
@@ -111,14 +111,14 @@ function dist(gp::GaussianProcess, xs::AbstractVector)
 end
 
 function predict(gp::GaussianProcess, xtrain::AbstractVector{S}, 
-    ytrain::AbstractVector{T}, xtest::S) where {T <: Real,S}
+    ytrain::AbstractVector{T}, xtest::R) where {T <: Real,R,S}
 
-    mu, sig = _predict(gp.method, gp.gpk, xtrain, ytrain, [xtest])
-    Normal(mu[1], sig[1])
+    mu, var = _predict(gp.method, gp.gpk, xtrain, ytrain, [xtest])
+    Normal(mu[1], sqrt(var[1]))
 end
 
 function predict(gp::GaussianProcess, xtrain::AbstractVector{S},
-    ytrain::AbstractVector{T}, xtest::AbstractVector{S}) where {T <: Real,S}
+    ytrain::AbstractVector{T}, xtest::AbstractVector{R}) where {T <: Real,R,S}
 
     mu, sig = _predict(gp.method, gp.gpk, xtrain, ytrain, xtest)
     MvNormal(mu, sig)
