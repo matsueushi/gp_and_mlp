@@ -59,28 +59,6 @@ end
 
 
 """
-Inducing variable method
-"""
-mutable struct IVM <: PredictMethod
-    ind_xs::Array
-end
-
-function cov(ivm::IVM, gpk::GPKernel, xs::AbstractVector)
-    # compute K_mm, K_mn
-    K_mm = cov(gpk.kernel, ivm.ind_xs, ivm.ind_xs)
-    K_mn = cov(gpk.kernel, ivm.ind_xs, xs)
-
-    n = size(xs, 1)
-
-    function lambda(x, k)
-        ker(gpk.kernel, x, x) - k' * K_mm * k
-    end
-
-    Λ = Diagonal([lambda(xs[i, :], K_mn[i, :]) for i in 1:n])
-end
-
-
-"""
 Gaussian Process
 """
 mutable struct GaussianProcess
